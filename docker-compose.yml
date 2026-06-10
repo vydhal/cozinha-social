@@ -1,0 +1,145 @@
+version: "3.9"
+
+networks:
+  mesa-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+services:
+  # ============================================
+  # PostgreSQL
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: mesa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesadobem
+      POSTGRES_USER: mesadobem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-senha_segura_123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mesa-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesadobem -d mesadobem"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  # ============================================
+  # Backend (Fastify + Prisma)
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mesa-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://mesadobem:${POSTGRES_PASSWORD:-senha_segura_123}@postgres:5432/mesadobem
+      JWT_SECRET: ${JWT_SECRET:-jwt_secret_mude_em_producao_32chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-refresh_secret_mude_em_producao_32chars}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://frontend}
+      FACE_SERVICE_URL: http://face-service:8000
+      LOG_LEVEL: info
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_URL_BASE: /uploads
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - mesa-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # ============================================
+  # Migrations (roda uma vez e encerra)
+  # ============================================
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: builder
+    container_name: mesa-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://mesadobem:${POSTGRES_PASSWORD:-senha_segura_123}@postgres:5432/mesadobem
+    networks:
+      - mesa-net
+    command: >
+      sh -c "npx prisma db push --accept-data-loss && npx tsx prisma/seed.ts"
+    restart: "no"
+
+  # ============================================
+  # Face Recognition Service (Python/OpenCV)
+  # ============================================
+  face-service:
+    build:
+      context: ./face-service
+      dockerfile: Dockerfile
+    container_name: mesa-face-service
+    restart: unless-stopped
+    networks:
+      - mesa-net
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 15s
+      start_period: 60s
+      retries: 3
+
+  # ============================================
+  # Frontend (React + Nginx)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mesa-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - mesa-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # ============================================
+  # Nginx Reverse Proxy
+  # ============================================
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    container_name: mesa-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - mesa-net

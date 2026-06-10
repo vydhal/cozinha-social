@@ -1,0 +1,420 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USUÁRIOS E PERMISSÕES
+// ============================================
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN
+  COLABORADOR
+}
+
+enum UserStatus {
+  ATIVO
+  INATIVO
+  BLOQUEADO
+}
+
+model User {
+  id           String     @id @default(uuid())
+  nome         String
+  email        String     @unique
+  senha        String
+  role         UserRole   @default(COLABORADOR)
+  status       UserStatus @default(ATIVO)
+  avatar       String?
+  telefone     String?
+  cargo        String?
+  unidadeId    String?
+  criadoEm     DateTime   @default(now())
+  atualizadoEm DateTime   @updatedAt
+  deletadoEm   DateTime?
+
+  unidade           Unidade?          @relation(fields: [unidadeId], references: [id])
+  retiradas            Retirada[]           @relation("OperadorRetirada")
+  auditLogs            AuditLog[]
+  filaAcoes            FilaAcao[]
+  refreshTokens        RefreshToken[]
+  documentosAprov      Documento[]          @relation("DocumentosAprovados")
+  documentosRelatorios DocumentoRelatorio[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  criadoEm  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================================
+// ENDEREÇOS E BAIRROS
+// ============================================
+
+model Bairro {
+  id           String   @id @default(uuid())
+  nome         String   @unique
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+
+  unidades      Unidade[]
+
+  @@map("bairros")
+}
+
+// ============================================
+// BENEFICIÁRIOS E FAMÍLIAS
+// ============================================
+
+enum BeneficiarioStatus {
+  ATIVO
+  PENDENTE
+  BLOQUEADO
+}
+
+enum BiometriaStatus {
+  VERIFICADA
+  PENDENTE
+  INDISPONIVEL
+}
+
+model Familia {
+  id           String   @id @default(uuid())
+  endereco     String
+  numero       String
+  bairro       String
+  cidade       String
+  cep          String
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  membros      Beneficiario[]
+  retiradas    Retirada[]
+
+  @@unique([endereco, numero, bairro, cep])
+  @@map("familias")
+}
+
+model Beneficiario {
+  id                   String             @id @default(uuid())
+  nome                 String
+  cpf                  String             @unique
+  rg                   String?
+  nascimento           DateTime
+  telefone             String?
+  endereco             String
+  numero               String
+  bairro               String
+  cidade               String
+  cep                  String
+  pessoasCasa          Int                @default(1)
+  quentinhasAutorizadas Int               @default(1)
+  responsavel          Boolean            @default(false)
+  podeRetirar          Boolean            @default(true)
+  observacoes          String?
+  // Perfil social
+  comunidade           String?
+  genero               String?
+  raca                 String?
+  filiaPai             String?
+  filiaMae             String?
+  naturalidade         String?
+  uf                   String?
+  estadoCivil          String?
+  rendaFamiliar        Float?
+  nomesMoradores       String?
+  bolsaFamilia         Boolean?
+  nis                  String?
+  deficiencia          Boolean?
+  qualDeficiencia      String?
+  status               BeneficiarioStatus @default(PENDENTE)
+  fotoUrl              String?
+  biometriaStatus      BiometriaStatus    @default(PENDENTE)
+  faceEmbedding        Bytes?
+  familiaId            String?
+  unidadeId            String?
+  criadoEm             DateTime           @default(now())
+  atualizadoEm         DateTime           @updatedAt
+  deletadoEm           DateTime?
+
+  familia              Familia?           @relation(fields: [familiaId], references: [id])
+  unidade              Unidade?           @relation(fields: [unidadeId], references: [id])
+  retiradas            Retirada[]
+  filaEntradas         FilaEntrada[]
+  documentos           Documento[]
+  faceData             BiometricFace?
+
+  @@index([cpf])
+  @@index([nome])
+  @@index([status])
+  @@index([familiaId])
+  @@index([bairro])
+  @@map("beneficiarios")
+}
+
+model BiometricFace {
+  id              String   @id @default(uuid())
+  beneficiarioId  String   @unique
+  embedding       Bytes
+  imageUrl        String?
+  confianca       Float?
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  beneficiario    Beneficiario @relation(fields: [beneficiarioId], references: [id], onDelete: Cascade)
+
+  @@map("biometric_faces")
+}
+
+enum DocStatus {
+  PENDENTE
+  APROVADO
+  REJEITADO
+}
+
+model Documento {
+  id               String    @id @default(uuid())
+  beneficiarioId   String
+  tipo             String
+  url              String
+  nome             String
+  tamanho          Int
+  status           DocStatus @default(PENDENTE)
+  aprovadoPorId    String?
+  aprovadoEm       DateTime?
+  rejeitadoMotivo  String?
+  criadoEm         DateTime  @default(now())
+
+  beneficiario     Beneficiario  @relation(fields: [beneficiarioId], references: [id], onDelete: Cascade)
+  aprovadoPor      User?         @relation("DocumentosAprovados", fields: [aprovadoPorId], references: [id])
+
+  @@index([beneficiarioId])
+  @@map("documentos")
+}
+
+// ============================================
+// FILA VIRTUAL
+// ============================================
+
+enum FilaStatus {
+  AGUARDANDO
+  CHAMADO
+  RETIRADO
+  AUSENTE
+}
+
+model FilaEntrada {
+  id             String     @id @default(uuid())
+  senha          String
+  beneficiarioId String
+  status         FilaStatus @default(AGUARDANDO)
+  horaEntrada    DateTime   @default(now())
+  horaChamado    DateTime?
+  horaConcluido  DateTime?
+  data           DateTime   @default(dbgenerated("CURRENT_DATE")) @db.Date
+  unidadeId      String?
+
+  beneficiario   Beneficiario @relation(fields: [beneficiarioId], references: [id])
+  unidade        Unidade?     @relation(fields: [unidadeId], references: [id])
+  acoes          FilaAcao[]
+
+  @@unique([senha, data, unidadeId])
+  @@index([data])
+  @@index([status])
+  @@index([beneficiarioId])
+  @@map("fila_entradas")
+}
+
+model FilaAcao {
+  id           String   @id @default(uuid())
+  filaId       String
+  operadorId   String
+  acao         String
+  criadoEm    DateTime @default(now())
+
+  fila         FilaEntrada @relation(fields: [filaId], references: [id])
+  operador     User        @relation(fields: [operadorId], references: [id])
+
+  @@index([filaId])
+  @@map("fila_acoes")
+}
+
+// ============================================
+// RETIRADAS
+// ============================================
+
+enum RetiradaStatus {
+  ENTREGUE
+  DUPLICADO_BLOQUEADO
+  AUSENTE
+  CANCELADO
+}
+
+enum MetodoRetirada {
+  FACIAL
+  MANUAL
+}
+
+model Retirada {
+  id             String         @id @default(uuid())
+  beneficiarioId String
+  familiaId      String?
+  operadorId     String
+  quantidade     Int
+  status         RetiradaStatus @default(ENTREGUE)
+  observacao     String?
+  metodoRetirada MetodoRetirada @default(MANUAL)
+  data           DateTime       @default(dbgenerated("CURRENT_DATE")) @db.Date
+  horario        DateTime       @default(now())
+  unidadeId      String?
+  criadoEm       DateTime       @default(now())
+
+  beneficiario   Beneficiario @relation(fields: [beneficiarioId], references: [id])
+  familia        Familia?     @relation(fields: [familiaId], references: [id])
+  operador       User         @relation("OperadorRetirada", fields: [operadorId], references: [id])
+  unidade        Unidade?     @relation(fields: [unidadeId], references: [id])
+
+  @@index([beneficiarioId])
+  @@index([familiaId])
+  @@index([data])
+  @@index([operadorId])
+  @@index([status])
+  @@map("retiradas")
+}
+
+model DocumentoRelatorio {
+  id              String   @id @default(uuid())
+  codigo          String   @unique
+  periodo         String
+  dataInicio      DateTime
+  dataFim         DateTime
+  totalRetiradas  Int
+  totalQuentinhas Int
+  bairro          String?
+  geradoPorId     String
+  geradoEm        DateTime @default(now())
+
+  geradoPor       User @relation(fields: [geradoPorId], references: [id])
+
+  @@index([codigo])
+  @@map("documentos_relatorios")
+}
+
+// ============================================
+// CONFIGURAÇÕES E UNIDADES
+// ============================================
+
+model Configuracao {
+  id                  String   @id @default(uuid())
+  nomeCozinha         String   @default("Mesa do Bem")
+  logoUrl             String?
+  faviconUrl          String?
+  corPrimaria         String   @default("#2f9d6b")
+  mensagemBoasVindas  String   @default("Bem-vindo ao Mesa do Bem")
+  limiteDiario              Int      @default(100)
+  tempoEsperaMin            Int      @default(5)
+  cadastroPublicoAtivo      Boolean  @default(false)
+  cadastroPublicoToken      String?  @unique
+  unidadeId                 String?  @unique
+  criadoEm                  DateTime @default(now())
+  atualizadoEm              DateTime @updatedAt
+
+  unidade             Unidade? @relation(fields: [unidadeId], references: [id])
+
+  @@map("configuracoes")
+}
+
+enum UnidadeStatus {
+  ATIVA
+  PAUSADA
+  DESATIVADA
+}
+
+model Unidade {
+  id           String        @id @default(uuid())
+  nome         String
+  cidade       String
+  bairro       String?
+  endereco     String?
+  status       UnidadeStatus @default(ATIVA)
+  cotaDiaria   Int           @default(100)
+  criadoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
+  deletadoEm   DateTime?
+
+  usuarios       User[]
+  beneficiarios  Beneficiario[]
+  fila           FilaEntrada[]
+  retiradas      Retirada[]
+  bairros        Bairro[]
+  configuracao   Configuracao?
+
+  @@map("unidades")
+}
+
+// ============================================
+// IMPORTAÇÕES
+// ============================================
+
+enum ImportacaoStatus {
+  PROCESSANDO
+  CONCLUIDA
+  ERRO
+}
+
+model Importacao {
+  id          String           @id @default(uuid())
+  fileName    String
+  totalLinhas Int              @default(0)
+  importados  Int              @default(0)
+  erros       Int              @default(0)
+  alertas     Int              @default(0)
+  status      ImportacaoStatus @default(PROCESSANDO)
+  errosDetalhes Json?
+  criadoEm   DateTime          @default(now())
+  unidadeId   String?
+
+  @@map("importacoes")
+}
+
+// ============================================
+// AUDITORIA
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  acao       String
+  recurso    String
+  recursoId  String?
+  detalhes   Json?
+  ip         String?
+  criadoEm  DateTime  @default(now())
+
+  user       User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([recurso])
+  @@index([criadoEm])
+  @@map("audit_logs")
+}

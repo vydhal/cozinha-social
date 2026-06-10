@@ -1,0 +1,60 @@
+# Frontend tem repositório próprio (mesa-do-bem-frontend)
+frontend/
+
+# Dependências
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+.output/
+.vinxi/
+**/.next/
+**/dist/
+
+# Variáveis de ambiente (nunca commitar)
+.env
+.env.local
+.env.production
+**/. env
+**/.env.local
+**/.env.production
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+face-service/.venv/
+
+# Logs
+*.log
+logs/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads locais
+backend/uploads/
+uploads/
+
+# Arquivos temporários/documentos físicos
+*.docx
+*.pdf
+*.png
+*.jpg
+!frontend/public/*.png
+!frontend/public/*.jpg
+!frontend/src/**/*.png
+!frontend/src/**/*.jpg
+!frontend/src/**/*.svg
+
+# Prisma generated
+backend/src/generated/
