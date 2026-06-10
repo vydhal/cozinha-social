@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  # 1. Backend API
+  backend:
+    image: vydhal/gov-demand-backend:2.2.1
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@gov-db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - PORT=3333
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL}
+      - SUPER_ADMIN_PASSWORD=${SUPER_ADMIN_PASSWORD}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+      - CORS_ORIGIN=https://crmpila.simplisoft.com.br
+    networks:
+      - SimpliSoft
+      - internal
+    volumes:
+      - gov_demand_uploads:/app/uploads
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=SimpliSoft"
+        - "traefik.http.routers.gov-demand-backend.rule=Host(`crmpila.simplisoft.com.br`) && (PathPrefix(`/api`) || PathPrefix(`/uploads`))"
+        - "traefik.http.routers.gov-demand-backend.entrypoints=websecure"
+        - "traefik.http.routers.gov-demand-backend.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.gov-demand-backend.loadbalancer.server.port=3333"
+        - "traefik.http.middlewares.gov-stripprefix.stripprefix.prefixes=/api"
+        - "traefik.http.routers.gov-demand-backend.middlewares=gov-stripprefix@docker"
+
+  # 2. Frontend
+  frontend:
+    image: vydhal/gov-demand-frontend:2.2.1
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=SimpliSoft"
+        - "traefik.http.routers.gov-demand-frontend.rule=Host(`crmpila.simplisoft.com.br`)"
+        - "traefik.http.routers.gov-demand-frontend.entrypoints=websecure"
+        - "traefik.http.routers.gov-demand-frontend.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.gov-demand-frontend.loadbalancer.server.port=80"
+    networks:
+      - SimpliSoft
+
+  # 3. Banco de Dados
+  gov-db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - gov_demand_postgres_final:/var/lib/postgresql/data
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  # 4. Cache
+  redis:
+    image: redis:7-alpine
+    networks:
+      - internal
+    deploy:
+      replicas: 1
+
+volumes:
+  gov_demand_postgres_final:
+  gov_demand_uploads:
+
+networks:
+  SimpliSoft:
+    external: true
+  internal:
+    driver: overlay
+    attachable: true

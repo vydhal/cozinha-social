@@ -1,6 +1,3 @@
-# Frontend tem repositório próprio (mesa-do-bem-frontend)
-frontend/
-
 # Dependências
 node_modules/
 **/node_modules/
