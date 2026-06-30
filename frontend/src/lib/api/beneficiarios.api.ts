@@ -61,7 +61,7 @@ export interface ListResult<T> {
 }
 
 export const beneficiariosApi = {
-  list: (params?: { search?: string; status?: string; bairro?: string; page?: number; limit?: number }) =>
+  list: (params?: { search?: string; status?: string; biometriaStatus?: string; bairro?: string; page?: number; limit?: number }) =>
     api.get<ListResult<Beneficiario>>(
       `/beneficiarios?${new URLSearchParams(Object.entries(params ?? {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])).toString()}`
     ),

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ValidarRouteImport } from './routes/validar'
 import { Route as PainelRouteImport } from './routes/painel'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as CadastroRouteImport } from './routes/cadastro'
@@ -27,6 +28,11 @@ import { Route as AppBeneficiariosNovoRouteImport } from './routes/_app.benefici
 import { Route as AppBeneficiariosImportarRouteImport } from './routes/_app.beneficiarios.importar'
 import { Route as AppBeneficiariosIdRouteImport } from './routes/_app.beneficiarios.$id'
 
+const ValidarRoute = ValidarRouteImport.update({
+  id: '/validar',
+  path: '/validar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PainelRoute = PainelRouteImport.update({
   id: '/painel',
   path: '/painel',
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
   '/painel': typeof PainelRoute
+  '/validar': typeof ValidarRoute
   '/admin': typeof AppAdminRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/equipe': typeof AppEquipeRoute
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
   '/painel': typeof PainelRoute
+  '/validar': typeof ValidarRoute
   '/admin': typeof AppAdminRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/equipe': typeof AppEquipeRoute
@@ -155,6 +163,7 @@ export interface FileRoutesById {
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
   '/painel': typeof PainelRoute
+  '/validar': typeof ValidarRoute
   '/_app/admin': typeof AppAdminRoute
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/equipe': typeof AppEquipeRoute
@@ -176,6 +185,7 @@ export interface FileRouteTypes {
     | '/cadastro'
     | '/login'
     | '/painel'
+    | '/validar'
     | '/admin'
     | '/configuracoes'
     | '/equipe'
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/cadastro'
     | '/login'
     | '/painel'
+    | '/validar'
     | '/admin'
     | '/configuracoes'
     | '/equipe'
@@ -212,6 +223,7 @@ export interface FileRouteTypes {
     | '/cadastro'
     | '/login'
     | '/painel'
+    | '/validar'
     | '/_app/admin'
     | '/_app/configuracoes'
     | '/_app/equipe'
@@ -232,10 +244,18 @@ export interface RootRouteChildren {
   CadastroRoute: typeof CadastroRoute
   LoginRoute: typeof LoginRoute
   PainelRoute: typeof PainelRoute
+  ValidarRoute: typeof ValidarRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/validar': {
+      id: '/validar'
+      path: '/validar'
+      fullPath: '/validar'
+      preLoaderRoute: typeof ValidarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/painel': {
       id: '/painel'
       path: '/painel'
@@ -397,6 +417,7 @@ const rootRouteChildren: RootRouteChildren = {
   CadastroRoute: CadastroRoute,
   LoginRoute: LoginRoute,
   PainelRoute: PainelRoute,
+  ValidarRoute: ValidarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

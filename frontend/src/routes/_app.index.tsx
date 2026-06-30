@@ -96,8 +96,12 @@ function Dashboard() {
         <StatCard icon={TrendingUp} label="Média semanal" value={kpis?.mediaSemanal ?? "—"} hint="quentinhas/dia" accent="muted" delay={0.2} />
         <StatCard icon={CheckCircle2} label="Comparecimento" value={kpis ? `${kpis.comparecimento}%` : "—"} hint="esta semana" accent="accent" delay={0.25} />
         <StatCard icon={Ban} label="Tentativas duplicadas" value={kpis?.tentativasDuplicadas ?? "—"} hint="hoje" accent="destructive" delay={0.3} />
-        <StatCard icon={UserCheck} label="Cadastros completos" value={kpis?.cadastrosCompletos ?? "—"} hint="com biometria" accent="primary" delay={0.35} />
-        <StatCard icon={AlertTriangle} label="Cadastros incompletos" value={kpis?.cadastrosIncompletos ?? "—"} hint="sem biometria" accent="warning" delay={0.4} />
+        <Link to="/beneficiarios" search={{ biometria: "verificada" }}>
+          <StatCard icon={UserCheck} label="Cadastros completos" value={kpis?.cadastrosCompletos ?? "—"} hint="com biometria" accent="primary" delay={0.35} />
+        </Link>
+        <Link to="/beneficiarios" search={{ biometria: "pendente" }}>
+          <StatCard icon={AlertTriangle} label="Cadastros incompletos" value={kpis?.cadastrosIncompletos ?? "—"} hint="sem biometria" accent="warning" delay={0.4} />
+        </Link>
       </div>
 
       {/* Cota progress */}
@@ -225,14 +229,16 @@ function Dashboard() {
             <CardTitle className="text-base">Alertas</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {[
-              { icon: AlertTriangle, color: "text-warning-foreground bg-warning/30", titulo: "Cota próxima do limite", texto: `Restam ${disponiveis} quentinhas para hoje.` },
-              { icon: Ban, color: "text-destructive bg-destructive/10", titulo: "Tentativas duplicadas", texto: `${kpis?.tentativasDuplicadas ?? 0} tentativa(s) bloqueada(s) hoje.` },
-              { icon: Users, color: "text-primary bg-primary/10", titulo: "Cadastros incompletos", texto: `${kpis?.cadastrosIncompletos ?? 0} beneficiário(s) sem biometria.` },
-            ].map((a, i) => {
+            {(
+              [
+                { icon: AlertTriangle, color: "text-warning-foreground bg-warning/30", titulo: "Cota próxima do limite", texto: `Restam ${disponiveis} quentinhas para hoje.` },
+                { icon: Ban, color: "text-destructive bg-destructive/10", titulo: "Tentativas duplicadas", texto: `${kpis?.tentativasDuplicadas ?? 0} tentativa(s) bloqueada(s) hoje.` },
+                { icon: Users, color: "text-primary bg-primary/10", titulo: "Cadastros incompletos", texto: `${kpis?.cadastrosIncompletos ?? 0} beneficiário(s) sem biometria.`, link: "/beneficiarios" as const, search: { biometria: "pendente" } },
+              ] satisfies { icon: typeof AlertTriangle; color: string; titulo: string; texto: string; link?: "/beneficiarios"; search?: { biometria: string } }[]
+            ).map((a, i) => {
               const I = a.icon;
-              return (
-                <div key={i} className="flex gap-3 rounded-xl border p-3">
+              const content = (
+                <div className="flex gap-3 rounded-xl border p-3 transition-colors hover:bg-muted/50">
                   <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${a.color}`}>
                     <I className="h-4 w-4" />
                   </div>
@@ -241,6 +247,11 @@ function Dashboard() {
                     <div className="text-xs text-muted-foreground">{a.texto}</div>
                   </div>
                 </div>
+              );
+              return a.link ? (
+                <Link key={i} to={a.link} search={a.search}>{content}</Link>
+              ) : (
+                <div key={i}>{content}</div>
               );
             })}
           </CardContent>

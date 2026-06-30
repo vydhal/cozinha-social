@@ -4,12 +4,13 @@ import type { CreateBeneficiarioInput, ListBeneficiariosInput } from './benefici
 
 export class BeneficiariosRepository {
   async findMany(filters: ListBeneficiariosInput) {
-    const { search, status, bairro, page, limit } = filters
+    const { search, status, biometriaStatus, bairro, page, limit } = filters
     const skip = (page - 1) * limit
 
     const where = {
       deletadoEm: null,
       ...(status && { status }),
+      ...(biometriaStatus && { biometriaStatus }),
       ...(bairro && { bairro }),
       ...(search && {
         OR: [
@@ -27,8 +28,9 @@ export class BeneficiariosRepository {
         take: limit,
         orderBy: { nome: 'asc' },
         select: {
-          id: true, nome: true, cpf: true, rg: true, telefone: true,
-          bairro: true, status: true, biometriaStatus: true,
+          id: true, nome: true, cpf: true, rg: true, nascimento: true, telefone: true,
+          endereco: true, numero: true, bairro: true, cidade: true, cep: true,
+          status: true, biometriaStatus: true,
           quentinhasAutorizadas: true, pessoasCasa: true, familiaId: true,
           fotoUrl: true, criadoEm: true,
         },

@@ -110,6 +110,24 @@ Definidas como secrets no Portainer:
 - No formulário Novo: seleção antecipada dos arquivos, enviados automaticamente após o cadastro salvar
 - Novos endpoints: `GET/POST /beneficiarios/:id/documentos`, `PATCH /beneficiarios/documentos/:id/avaliar`, `DELETE /beneficiarios/documentos/:id`
 
+### Sessão 4 — Exportação PDF de beneficiários + filtro de biometria
+
+#### Exportação em PDF na lista de beneficiários (`_app.beneficiarios.index.tsx`)
+- Botão **PDF** ao lado do **CSV** (botão antigo "Exportar" virou "CSV")
+- Reaproveita o mesmo padrão visual de Relatórios: cabeçalho com logo (`useSettings()`), rodapé institucional (`/rodape.png`), impressão automática via `window.print()` — sem dependência de lib de PDF
+- Respeita os filtros ativos (busca, status, biometria) e mostra resumo (Total, Ativos, Pendentes, Bloqueados, Com biometria, Sem biometria)
+- Não gera código de autenticação (`REL-*`) — é só uma listagem, diferente do relatório de retiradas
+
+#### Filtro por status de biometria (cadastros incompletos)
+- Motivação: o dashboard mostra "Cadastros incompletos" (sem biometria) mas não havia como ver quem são
+- Backend: `listBeneficiariosSchema` e `BeneficiariosRepository.findMany` aceitam `biometriaStatus` (`VERIFICADA`/`PENDENTE`/`INDISPONIVEL`) em `GET /beneficiarios`
+- Frontend: novo Select "Biometria" na lista de beneficiários + badge de biometria em cada card
+- Cards do dashboard "Cadastros completos"/"Cadastros incompletos" (`_app.index.tsx`) agora são links para `/beneficiarios?biometria=verificada` / `?biometria=pendente`, já filtrado
+- Rota `/beneficiarios` ganhou `validateSearch` com `biometria?: string` opcional (TanStack Router) para suportar o deep-link
+
+#### Correção: campos faltando no select de beneficiários
+- `BeneficiariosRepository.findMany` não retornava `nascimento`, `endereco`, `numero`, `cidade`, `cep` — por isso essas colunas já saíam vazias na exportação CSV antiga. Campos adicionados ao `select`.
+
 ### Sessão 3 — PDF autenticado + Integração entre sistemas
 
 #### Relatório PDF autenticado
