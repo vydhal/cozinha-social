@@ -22,12 +22,12 @@ import {
 import {
   ArrowLeft, MapPin, Phone, IdCard, Cake, Home, ShieldCheck, Camera,
   Edit2, Trash2, Save, X, Loader2, Upload, Check, ScanFace, UserPlus, UserMinus, Search,
-  FileText, CheckCircle2, XCircle, Eye, AlertCircle,
+  FileText, CheckCircle2, XCircle, Eye, AlertCircle, Printer,
 } from "lucide-react";
 import { beneficiariosApi, type Documento } from "@/lib/api/beneficiarios.api";
 import { toast } from "sonner";
 import { type FamiliaMembro } from "@/lib/api/beneficiarios.api";
-import { useAuth } from "@/lib/store";
+import { useAuth, useSettings } from "@/lib/store";
 import { ApiError } from "@/lib/api/client";
 import { maskCpf, maskCep } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -75,6 +75,9 @@ function BeneficiarioDetalhe() {
     pessoasCasa: 1, nomesMoradores: "", quentinhasAutorizadas: 1, responsavel: false,
     observacoes: "", status: "PENDENTE",
   });
+
+  const { logoUrl, nomeCozinha } = useSettings();
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["beneficiario", id],
@@ -204,6 +207,175 @@ function BeneficiarioDetalhe() {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
 
+  async function exportPdf() {
+    if (!data) return;
+    const bx = data as any;
+    setExportingPdf(true);
+    try {
+      const origin = window.location.origin;
+      const date = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const logoHtml = logoUrl
+        ? `<img src="${origin}${logoUrl.startsWith("/") ? logoUrl : "/" + logoUrl}" alt="Logo" style="height:52px;object-fit:contain;" />`
+        : `<div style="width:52px;height:52px;background:#2f9d6b;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;">🍽</div>`;
+
+      const fotoHtml = bx.fotoUrl
+        ? `<img src="${origin}${bx.fotoUrl.startsWith("/") ? bx.fotoUrl : "/" + bx.fotoUrl}" alt="Foto" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid #2f9d6b;" />`
+        : `<div style="width:100px;height:100px;border-radius:50%;background:#e8f5f0;border:3px solid #2f9d6b;display:flex;align-items:center;justify-content:center;font-size:36px;color:#2f9d6b;">👤</div>`;
+
+      const statusColor: Record<string, string> = { ATIVO: "#2f9d6b", PENDENTE: "#b45309", BLOQUEADO: "#dc2626" };
+      const statusLabel: Record<string, string> = { ATIVO: "Ativo", PENDENTE: "Pendente", BLOQUEADO: "Bloqueado" };
+      const biometriaLabel: Record<string, string> = { VERIFICADA: "Verificada ✓", PENDENTE: "Pendente — sem biometria", INDISPONIVEL: "Indisponível" };
+      const biometriaColor: Record<string, string> = { VERIFICADA: "#2f9d6b", PENDENTE: "#b45309", INDISPONIVEL: "#6b7280" };
+
+      const generoLabel: Record<string, string> = { MASCULINO: "Masculino", FEMININO: "Feminino", NAO_BINARIO: "Não-binário", OUTRO: "Outro", NAO_INFORMADO: "Não informado" };
+      const racaLabel: Record<string, string> = { BRANCA: "Branca", PRETA: "Preta", PARDA: "Parda", AMARELA: "Amarela", INDIGENA: "Indígena", NAO_INFORMADO: "Não informado" };
+      const civilLabel: Record<string, string> = { SOLTEIRO: "Solteiro(a)", CASADO: "Casado(a)", DIVORCIADO: "Divorciado(a)", VIUVO: "Viúvo(a)", UNIAO_ESTAVEL: "União estável", OUTRO: "Outro" };
+
+      function row(label: string, value: string | undefined | null) {
+        if (!value) return "";
+        return `<tr><td style="color:#666;width:180px;padding:4px 8px;font-size:11px;">${label}</td><td style="padding:4px 8px;font-size:11px;font-weight:500;">${value}</td></tr>`;
+      }
+
+      const retiradas: any[] = bx.retiradas ?? [];
+      const retiradasRows = retiradas.slice(0, 15).map(r => `<tr>
+        <td>${new Date(r.horario).toLocaleDateString("pt-BR")}</td>
+        <td>${new Date(r.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
+        <td style="text-align:center;">${r.quantidade}</td>
+        <td>${r.status === "ENTREGUE" ? "Entregue" : r.status === "DUPLICADO_BLOQUEADO" ? "Bloqueado" : "Ausente"}</td>
+      </tr>`).join("");
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+        <title>Ficha — ${data.nome}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; font-size: 11px; color: #111; padding: 0 24px; }
+          .header { display: flex; align-items: center; gap: 16px; padding: 20px 0 12px; border-bottom: 3px solid #2f9d6b; margin-bottom: 20px; }
+          .header-text h1 { font-size: 18px; color: #111; }
+          .header-text p { font-size: 11px; color: #555; margin-top: 2px; }
+          .profile { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+          .profile-info { flex: 1; }
+          .profile-name { font-size: 18px; font-weight: bold; margin-bottom: 6px; }
+          .badges { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+          .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+          .section { margin-bottom: 14px; }
+          .section-title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: .6px; color: #2f9d6b; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; margin-bottom: 6px; }
+          table.info { width: 100%; border-collapse: collapse; }
+          table.info td { vertical-align: top; }
+          table.ret { width: 100%; border-collapse: collapse; margin-bottom: 80px; }
+          table.ret th { background: #f5f5f5; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 5px 8px; text-align: left; border: 1px solid #e0e0e0; }
+          table.ret td { border: 1px solid #e8e8e8; padding: 4px 8px; font-size: 11px; }
+          table.ret tr:nth-child(even) td { background: #fafafa; }
+          .footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
+          .footer img { width: 100%; display: block; }
+          @media print { body { padding: 0 16px; } .footer { position: fixed; bottom: 0; } }
+        </style>
+      </head><body>
+        <div class="header">
+          ${logoHtml}
+          <div class="header-text">
+            <h1>${nomeCozinha || "Mesa do Bem"}</h1>
+            <p>Ficha do Beneficiário</p>
+            <p>Gerado em ${date}</p>
+          </div>
+        </div>
+
+        <div class="profile">
+          <div style="text-align:center;">${fotoHtml}</div>
+          <div class="profile-info">
+            <div class="profile-name">${data.nome}</div>
+            <div class="badges">
+              <span class="badge" style="background:${statusColor[data.status] ?? "#888"}20;color:${statusColor[data.status] ?? "#888"};">
+                ${statusLabel[data.status] ?? data.status}
+              </span>
+              <span class="badge" style="background:${biometriaColor[bx.biometriaStatus] ?? "#888"}20;color:${biometriaColor[bx.biometriaStatus] ?? "#888"};">
+                Biometria: ${biometriaLabel[bx.biometriaStatus] ?? bx.biometriaStatus}
+              </span>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Dados pessoais</div>
+              <table class="info">
+                ${row("CPF", data.cpf)}
+                ${row("RG", data.rg)}
+                ${row("Nascimento", data.nascimento ? new Date(data.nascimento).toLocaleDateString("pt-BR") : null)}
+                ${row("Telefone", data.telefone)}
+                ${row("Cadastrado em", new Date(data.criadoEm).toLocaleDateString("pt-BR"))}
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:14px;">
+          <div>
+            <div class="section-title">Endereço</div>
+            <table class="info">
+              ${row("Logradouro", bx.endereco && bx.numero ? `${bx.endereco}, ${bx.numero}` : bx.endereco)}
+              ${row("Bairro", bx.bairro)}
+              ${row("Cidade / UF", bx.cidade && bx.uf ? `${bx.cidade} / ${bx.uf}` : bx.cidade)}
+              ${row("CEP", bx.cep)}
+              ${row("Comunidade", bx.comunidade)}
+            </table>
+          </div>
+          <div>
+            <div class="section-title">Família e autorização</div>
+            <table class="info">
+              ${row("Pessoas na casa", bx.pessoasCasa ? String(bx.pessoasCasa) : null)}
+              ${row("Quentinhas/dia", bx.quentinhasAutorizadas ? String(bx.quentinhasAutorizadas) : null)}
+              ${row("Outros moradores", bx.nomesMoradores)}
+            </table>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:14px;">
+          <div>
+            <div class="section-title">Perfil social</div>
+            <table class="info">
+              ${row("Gênero", bx.genero ? generoLabel[bx.genero] : null)}
+              ${row("Raça / Cor", bx.raca ? racaLabel[bx.raca] : null)}
+              ${row("Estado civil", bx.estadoCivil ? civilLabel[bx.estadoCivil] : null)}
+              ${row("Naturalidade", bx.naturalidade)}
+              ${row("Filiação — Pai", bx.filiaPai)}
+              ${row("Filiação — Mãe", bx.filiaMae)}
+            </table>
+          </div>
+          <div>
+            <div class="section-title">Situação socioeconômica</div>
+            <table class="info">
+              ${row("Renda familiar", bx.rendaFamiliar != null ? `R$ ${Number(bx.rendaFamiliar).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : null)}
+              ${row("Bolsa Família", bx.bolsaFamilia != null ? (bx.bolsaFamilia ? "Sim" : "Não") : null)}
+              ${row("NIS", bx.nis)}
+              ${row("Deficiência", bx.deficiencia != null ? (bx.deficiencia ? (bx.qualDeficiencia ?? "Sim") : "Não") : null)}
+            </table>
+          </div>
+        </div>
+
+        ${bx.observacoes ? `<div class="section"><div class="section-title">Observações</div><p style="font-size:11px;color:#333;">${bx.observacoes}</p></div>` : ""}
+
+        <div class="section">
+          <div class="section-title">Histórico de retiradas${retiradas.length > 15 ? ` (últimas 15 de ${retiradas.length})` : ""}</div>
+          ${retiradas.length === 0
+            ? `<p style="font-size:11px;color:#888;">Sem retiradas registradas.</p>`
+            : `<table class="ret">
+                <thead><tr><th>Data</th><th>Horário</th><th style="text-align:center;">Qtd</th><th>Status</th></tr></thead>
+                <tbody>${retiradasRows}</tbody>
+              </table>`}
+        </div>
+
+        <div class="footer">
+          <img src="${origin}/rodape.png" alt="Rodapé institucional" />
+        </div>
+        <script>window.onload = function(){ window.print(); }<\/script>
+      </body></html>`;
+
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("Permita pop-ups para exportar PDF."); return; }
+      w.document.write(html);
+      w.document.close();
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   const viewActions = (
     <>
       <AlertDialog>
@@ -232,6 +404,10 @@ function BeneficiarioDetalhe() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Button variant="outline" className="gap-2" onClick={exportPdf} disabled={exportingPdf}>
+        {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+        PDF
+      </Button>
       <Button variant="outline" onClick={() => setEditing(true)} className="gap-2">
         <Edit2 className="h-4 w-4" /> Editar
       </Button>

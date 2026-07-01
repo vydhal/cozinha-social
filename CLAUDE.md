@@ -118,6 +118,13 @@ Definidas como secrets no Portainer:
 - Respeita os filtros ativos (busca, status, biometria) e mostra resumo (Total, Ativos, Pendentes, Bloqueados, Com biometria, Sem biometria)
 - Não gera código de autenticação (`REL-*`) — é só uma listagem, diferente do relatório de retiradas
 
+#### Ficha individual em PDF (`_app.beneficiarios.$id.tsx`)
+- Botão **PDF** na barra de ações do perfil (entre "Excluir" e "Editar"), visível apenas no modo visualização
+- Documento inclui: foto do beneficiário em círculo (placeholder se sem foto), badges de status e biometria com cores indicativas, dados pessoais, endereço, família/autorização, perfil social, situação socioeconômica, observações e histórico de retiradas (últimas 15)
+- Biometria "Pendente" ou "Indisponível" aparece em âmbar/cinza no badge — deixa claro o cadastro incompleto
+- Mesmo padrão de cabeçalho (logo + `nomeCozinha`) e rodapé (`/rodape.png`) dos demais PDFs do sistema
+- Não requer chamada extra ao backend — usa os dados já carregados pela query `getById`
+
 #### Filtro por status de biometria (cadastros incompletos)
 - Motivação: o dashboard mostra "Cadastros incompletos" (sem biometria) mas não havia como ver quem são
 - Backend: `listBeneficiariosSchema` e `BeneficiariosRepository.findMany` aceitam `biometriaStatus` (`VERIFICADA`/`PENDENTE`/`INDISPONIVEL`) em `GET /beneficiarios`
