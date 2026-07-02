@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { RetiradasService } from './retiradas.service.js'
-import { confirmarRetiradaSchema, buscarBeneficiarioSchema, validarParamsSchema } from './retiradas.schema.js'
+import { confirmarRetiradaSchema, buscarBeneficiarioSchema, validarParamsSchema, validarQuerySchema } from './retiradas.schema.js'
 import { authenticate } from '../../middlewares/authenticate.js'
 import { createAuditLog } from '../../shared/utils/audit.js'
 
@@ -20,7 +20,8 @@ export async function retiradasRoutes(fastify: FastifyInstance) {
 
   fastify.get('/validar/:id', async (request, reply) => {
     const { id } = validarParamsSchema.parse(request.params)
-    const result = await service.validarBeneficiario(id)
+    const { data } = validarQuerySchema.parse(request.query)
+    const result = await service.validarBeneficiario(id, data)
     return reply.send({ data: result })
   })
 

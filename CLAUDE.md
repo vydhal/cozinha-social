@@ -135,6 +135,16 @@ Definidas como secrets no Portainer:
 #### Correção: campos faltando no select de beneficiários
 - `BeneficiariosRepository.findMany` não retornava `nascimento`, `endereco`, `numero`, `cidade`, `cep` — por isso essas colunas já saíam vazias na exportação CSV antiga. Campos adicionados ao `select`.
 
+#### Registro retroativo de retiradas (`_app.retirada.tsx`)
+- Seletor de data no topo da tela de retirada: abre ao hoje por padrão, exibindo dia por extenso
+- Ao selecionar data passada, abre AlertDialog pedindo confirmação explícita ("Registro retroativo")
+- Banner de alerta laranja (warning) enquanto data retroativa está ativa; verde (primary) quando é hoje
+- Enquanto data retroativa está ativa, o texto do botão muda: "Registrar em DD/MM/AAAA"
+- Botão "Voltar para hoje" no Calendário quando data retroativa está selecionada
+- Backend: `validarBeneficiario(id, data?)` e `confirmar(input)` aceitam `data` opcional (`YYYY-MM-DD`); checagens de duplicata e limite diário são feitas para a data informada, não para `today`
+- API client: `validar(id, data?)` e `confirmar(id, unidadeId?, metodo?, data?)` repassam a data
+- Calendário usa `react-day-picker` (shadcn/ui Calendar) com locale `pt-BR` (date-fns) e desabilita datas futuras
+
 ### Sessão 3 — PDF autenticado + Integração entre sistemas
 
 #### Relatório PDF autenticado

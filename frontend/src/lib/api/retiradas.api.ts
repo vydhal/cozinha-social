@@ -30,11 +30,11 @@ export const retiradasApi = {
   buscar: (q: string) =>
     api.get<RetiradaValidacao["beneficiario"][]>(`/retiradas/buscar?q=${encodeURIComponent(q)}`),
 
-  validar: (id: string) =>
-    api.get<RetiradaValidacao>(`/retiradas/validar/${id}`),
+  validar: (id: string, data?: string) =>
+    api.get<RetiradaValidacao>(`/retiradas/validar/${id}${data ? `?data=${data}` : ""}`),
 
-  confirmar: (beneficiarioId: string, unidadeId?: string, metodoRetirada: "FACIAL" | "MANUAL" = "MANUAL") =>
-    api.post<Retirada>("/retiradas/confirmar", { beneficiarioId, unidadeId, metodoRetirada }),
+  confirmar: (beneficiarioId: string, unidadeId?: string, metodoRetirada: "FACIAL" | "MANUAL" = "MANUAL", data?: string) =>
+    api.post<Retirada>("/retiradas/confirmar", { beneficiarioId, unidadeId, metodoRetirada, ...(data && { data }) }),
 
   listaDiaria: (date?: string, unidadeId?: string) =>
     api.get<{

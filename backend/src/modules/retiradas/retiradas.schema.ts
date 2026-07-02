@@ -5,6 +5,11 @@ export const confirmarRetiradaSchema = z.object({
   unidadeId: z.string().uuid().optional(),
   observacao: z.string().optional(),
   metodoRetirada: z.enum(['FACIAL', 'MANUAL']).optional(),
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data inválido (YYYY-MM-DD)').optional(),
+})
+
+export const validarQuerySchema = z.object({
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
 
 export const buscarBeneficiarioSchema = z.object({

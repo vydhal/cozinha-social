@@ -43,8 +43,8 @@ export class RetiradasService {
     }
   }
 
-  async validarBeneficiario(beneficiarioId: string) {
-    const today = new Date()
+  async validarBeneficiario(beneficiarioId: string, dataParam?: string) {
+    const today = dataParam ? new Date(dataParam + 'T00:00:00') : new Date()
     today.setHours(0, 0, 0, 0)
 
     const beneficiario = await prisma.beneficiario.findFirst({
@@ -103,7 +103,7 @@ export class RetiradasService {
   }
 
   async confirmar(input: ConfirmarRetiradaInput, operadorId: string) {
-    const today = new Date()
+    const today = input.data ? new Date(input.data + 'T00:00:00') : new Date()
     today.setHours(0, 0, 0, 0)
 
     const beneficiario = await prisma.beneficiario.findFirst({

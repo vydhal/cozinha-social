@@ -5,15 +5,38 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Search, ScanFace, CheckCircle2, AlertTriangle, Ban, UtensilsCrossed, Clock, MapPin, Home, Loader2 } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Search, ScanFace, CheckCircle2, AlertTriangle, Ban, UtensilsCrossed,
+  Clock, MapPin, Home, Loader2, CalendarDays, CalendarClock,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { retiradasApi, type RetiradaValidacao } from "@/lib/api/retiradas.api";
 import { ApiError } from "@/lib/api/client";
+import { ptBR } from "date-fns/locale";
 
 export const Route = createFileRoute("/_app/retirada")({
   component: Retirada,
 });
+
+function toIsoDate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateBR(d: Date) {
+  return d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+}
+
+function isToday(d: Date) {
+  const today = new Date();
+  return toIsoDate(d) === toIsoDate(today);
+}
 
 function Retirada() {
   const [q, setQ] = useState("");
@@ -21,6 +44,15 @@ function Retirada() {
   const [validacao, setValidacao] = useState<RetiradaValidacao | null>(null);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingConfirm, setLoadingConfirm] = useState(false);
+
+  // Date state
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [pendingDate, setPendingDate] = useState<Date | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [showDateConfirm, setShowDateConfirm] = useState(false);
+
+  const dateIsToday = isToday(selectedDate);
+  const dateStr = toIsoDate(selectedDate);
 
   useEffect(() => {
     if (q.length < 2) { setResults([]); return; }
@@ -38,11 +70,32 @@ function Retirada() {
     return () => clearTimeout(timer);
   }, [q]);
 
+  const handleDaySelect = (day: Date | undefined) => {
+    if (!day) return;
+    setCalendarOpen(false);
+    if (isToday(day)) {
+      setSelectedDate(day);
+      setValidacao(null);
+    } else {
+      setPendingDate(day);
+      setShowDateConfirm(true);
+    }
+  };
+
+  const confirmDateChange = () => {
+    if (pendingDate) {
+      setSelectedDate(pendingDate);
+      setValidacao(null);
+    }
+    setShowDateConfirm(false);
+    setPendingDate(null);
+  };
+
   const selecionar = async (id: string) => {
     setResults([]);
     setQ("");
     try {
-      const data = await retiradasApi.validar(id);
+      const data = await retiradasApi.validar(id, dateStr);
       setValidacao(data);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro ao validar beneficiário");
@@ -53,7 +106,7 @@ function Retirada() {
     if (!validacao) return;
     setLoadingConfirm(true);
     try {
-      await retiradasApi.confirmar(validacao.beneficiario.id, undefined, "MANUAL");
+      await retiradasApi.confirmar(validacao.beneficiario.id, undefined, "MANUAL", dateIsToday ? undefined : dateStr);
       toast.success(`Entrega confirmada para ${validacao.beneficiario.nome.split(" ")[0]}.`);
       setValidacao(null);
     } catch (err) {
@@ -74,6 +127,85 @@ function Retirada() {
     <div className="space-y-6">
       <PageHeader title="Retirada de quentinhas" subtitle="Busque ou valide facialmente para confirmar a entrega." />
 
+      {/* Seletor de data */}
+      <Card className={!dateIsToday ? "border-warning/60 bg-warning/5" : ""}>
+        <CardContent className="flex items-center gap-4 p-4">
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${dateIsToday ? "bg-primary/10 text-primary" : "bg-warning/20 text-warning-foreground"}`}>
+            {dateIsToday ? <CalendarDays className="h-5 w-5" /> : <CalendarClock className="h-5 w-5" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            {dateIsToday ? (
+              <div className="font-semibold text-sm">Registrando para hoje</div>
+            ) : (
+              <div className="font-semibold text-sm text-warning-foreground">Data retroativa — registrando para:</div>
+            )}
+            <div className={`text-xs mt-0.5 ${dateIsToday ? "text-muted-foreground" : "font-bold text-warning-foreground"}`}>
+              {formatDateBR(selectedDate)}
+            </div>
+          </div>
+          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="shrink-0 gap-2">
+                <CalendarDays className="h-4 w-4" />
+                Alterar data
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={handleDaySelect}
+                disabled={(day) => day > new Date()}
+                defaultMonth={selectedDate}
+                locale={ptBR}
+              />
+              {!dateIsToday && (
+                <div className="border-t px-3 py-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs text-muted-foreground"
+                    onClick={() => { setSelectedDate(new Date()); setValidacao(null); setCalendarOpen(false); }}
+                  >
+                    Voltar para hoje
+                  </Button>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </CardContent>
+      </Card>
+
+      {/* Dialog de confirmação de data retroativa */}
+      <AlertDialog open={showDateConfirm} onOpenChange={setShowDateConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-warning-foreground" />
+              Confirmar data retroativa?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>Você selecionou uma data passada:</p>
+                <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-center">
+                  <span className="text-base font-bold text-warning-foreground">
+                    {pendingDate ? formatDateBR(pendingDate) : ""}
+                  </span>
+                </div>
+                <p>Todas as retiradas registradas nesta sessão serão salvas com essa data. Isso é usado para lançamento retroativo de entregas feitas manualmente.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingDate(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDateChange}>
+              Confirmar — usar esta data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Busca */}
       <Card>
         <CardContent className="space-y-3 p-4">
           <div className="flex gap-2">
@@ -90,7 +222,7 @@ function Retirada() {
               {results.map(r => (
                 <li key={r.id}>
                   <button onClick={() => selecionar(r.id)} className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-muted">
-                    <Avatar className="h-10 w-10"><AvatarImage src={r.fotoUrl} /><AvatarFallback className="bg-primary/10 text-primary">{r.nome.split(" ").map((n: string)=>n[0]).slice(0,2).join("")}</AvatarFallback></Avatar>
+                    <Avatar className="h-10 w-10"><AvatarImage src={r.fotoUrl} /><AvatarFallback className="bg-primary/10 text-primary">{r.nome.split(" ").map((n: string) => n[0]).slice(0, 2).join("")}</AvatarFallback></Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold">{r.nome}</div>
                       <div className="text-xs text-muted-foreground">{r.cpf} · {r.bairro}</div>
@@ -109,7 +241,7 @@ function Retirada() {
             <Card>
               <CardContent className="space-y-5 p-5 sm:p-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <Avatar className="h-20 w-20"><AvatarImage src={b.fotoUrl} /><AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">{b.nome.split(" ").map((n: string)=>n[0]).slice(0,2).join("")}</AvatarFallback></Avatar>
+                  <Avatar className="h-20 w-20"><AvatarImage src={b.fotoUrl} /><AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">{b.nome.split(" ").map((n: string) => n[0]).slice(0, 2).join("")}</AvatarFallback></Avatar>
                   <div className="min-w-0 flex-1">
                     <div className="text-xl font-bold">{b.nome}</div>
                     <div className="mt-0.5 text-sm text-muted-foreground">CPF {b.cpf}</div>
@@ -132,19 +264,28 @@ function Retirada() {
                   </div>
                 </div>
 
+                {!dateIsToday && (
+                  <AlertBox
+                    tone="warning"
+                    icon={CalendarClock}
+                    title={`Registro para ${selectedDate.toLocaleDateString("pt-BR")}`}
+                    message="Esta entrega será salva com a data retroativa selecionada."
+                  />
+                )}
+
                 {jaRetirou ? (
-                  <AlertBox tone="destructive" icon={Ban} title="Quentinha já retirada hoje" message="Esta pessoa já recebeu sua quentinha. Nova retirada bloqueada." />
+                  <AlertBox tone="destructive" icon={Ban} title={`Quentinha já retirada em ${selectedDate.toLocaleDateString("pt-BR")}`} message="Esta pessoa já recebeu sua quentinha nesta data. Nova retirada bloqueada." />
                 ) : familiaJa ? (
-                  <AlertBox tone="warning" icon={AlertTriangle} title="Família já contemplada hoje" message={`${familiaJa} (mesmo endereço) já retirou hoje.`} />
+                  <AlertBox tone="warning" icon={AlertTriangle} title="Família já contemplada nesta data" message={`${familiaJa} (mesmo endereço) já retirou nesta data.`} />
                 ) : (
                   <AlertBox tone="success" icon={CheckCircle2} title="Liberado para retirada" message={`${b.quentinhasAutorizadas} quentinha(s) autorizada(s).`} />
                 )}
 
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" onClick={() => setValidacao(null)}>Cancelar</Button>
-                  <Button className="flex-1 h-14 text-base gap-2" disabled={!!familiaJa || loadingConfirm} onClick={confirmar}>
+                  <Button className="flex-1 h-14 text-base gap-2" disabled={!!jaRetirou || !!familiaJa || loadingConfirm} onClick={confirmar}>
                     {loadingConfirm ? <Loader2 className="h-5 w-5 animate-spin" /> : <UtensilsCrossed className="h-5 w-5" />}
-                    Confirmar entrega
+                    {dateIsToday ? "Confirmar entrega" : `Registrar em ${selectedDate.toLocaleDateString("pt-BR")}`}
                   </Button>
                 </div>
               </CardContent>
