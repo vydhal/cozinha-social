@@ -80,6 +80,9 @@ export const relatoriosApi = {
     totalRetiradas: number; totalQuentinhas: number; bairro?: string;
   }) => api.post<{ id: string; codigo: string }>("/relatorios/documento", params),
 
+  deletarRetirada: (id: string) =>
+    api.delete<{ id: string }>(`/retiradas/${id}`),
+
   validarCodigo: async (codigo: string): Promise<DocumentoValidacao | RetiradaValidacaoDoc> => {
     const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api";
     const res = await fetch(`${base}/validar/${encodeURIComponent(codigo)}`);

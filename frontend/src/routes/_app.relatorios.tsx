@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
 import { StatCard } from "@/components/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,13 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
-import { Utensils, TrendingUp, Users, UserX, Percent, FileDown, Printer, FileText, Loader2 } from "lucide-react";
+import { Utensils, TrendingUp, Users, UserX, Percent, FileDown, Printer, FileText, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { relatoriosApi } from "@/lib/api/relatorios.api";
-import { useSettings } from "@/lib/store";
+import { useSettings, useAuth } from "@/lib/store";
 
 export const Route = createFileRoute("/_app/relatorios")({ component: Relatorios });
 
@@ -56,6 +60,20 @@ function Relatorios() {
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const { logoUrl, nomeCozinha } = useSettings();
+  const user = useAuth(s => s.user);
+  const isSuperAdmin = user?.role === "SUPERADMIN";
+  const queryClient = useQueryClient();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => relatoriosApi.deletarRetirada(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["relatorio"] });
+      toast.success("Retirada excluída com sucesso.");
+      setConfirmDeleteId(null);
+    },
+    onError: () => toast.error("Erro ao excluir retirada."),
+  });
 
   const { data: evolucao = [] } = useQuery({
     queryKey: ["evolucao-mensal"],
@@ -87,6 +105,15 @@ function Relatorios() {
 
   const periodoLabel: Record<string, string> = { hoje: "Hoje", semana: "Semana", mes: "Mês", ano: "Ano", personalizado: "Personalizado" };
 
+  function fmtData(data: string) {
+    // data é @db.Date → vem como ISO UTC midnight → usar UTC para evitar virar dia anterior em UTC-3
+    return new Date(data).toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  }
+
+  function fmtHora(horario: string) {
+    return new Date(horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+
   function exportCsv() {
     if (!retiradas.length) return toast.error("Nenhum dado para exportar.");
     const header = ["Beneficiário", "CPF", "Bairro", "Qtd", "Data", "Horário", "Método", "Status"];
@@ -95,8 +122,8 @@ function Relatorios() {
       r.beneficiario?.cpf ?? "",
       r.beneficiario?.bairro ?? "",
       String(r.quantidade),
-      new Date(r.horario).toLocaleDateString("pt-BR"),
-      new Date(r.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      fmtData(r.data ?? r.horario),
+      fmtHora(r.horario),
       r.metodoRetirada === "FACIAL" ? "Facial" : "Manual",
       r.status === "ENTREGUE" ? "Entregue" : r.status === "DUPLICADO_BLOQUEADO" ? "Bloqueado" : "Ausente",
     ]);
@@ -143,8 +170,8 @@ function Relatorios() {
           <td>${r.beneficiario?.cpf ?? "—"}</td>
           <td>${r.beneficiario?.bairro ?? "—"}</td>
           <td style="text-align:center;">${r.quantidade}</td>
-          <td>${new Date(r.horario).toLocaleDateString("pt-BR")}</td>
-          <td>${new Date(r.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
+          <td>${fmtData(r.data ?? r.horario)}</td>
+          <td>${fmtHora(r.horario)}</td>
           <td style="text-align:center;">${metodoCell}</td>
           <td>${r.status === "ENTREGUE" ? "Entregue" : r.status === "DUPLICADO_BLOQUEADO" ? "Bloqueado" : "Ausente"}</td>
         </tr>`;
@@ -358,18 +385,19 @@ function Relatorios() {
                   <th className="px-5 py-2 font-medium">Horário</th>
                   <th className="px-5 py-2 font-medium">Método</th>
                   <th className="px-5 py-2 font-medium">Status</th>
+                  {isSuperAdmin && <th className="px-3 py-2 font-medium w-10" />}
                 </tr>
               </thead>
               <tbody>
                 {retiradas.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-6 text-center text-muted-foreground">Nenhuma retirada no período.</td></tr>
+                  <tr><td colSpan={isSuperAdmin ? 8 : 7} className="px-5 py-6 text-center text-muted-foreground">Nenhuma retirada no período.</td></tr>
                 ) : retiradas.slice(0, 20).map((r: any) => (
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="px-5 py-2">{r.beneficiario?.nome ?? "—"}</td>
                     <td className="px-5 py-2">{r.beneficiario?.bairro ?? "—"}</td>
                     <td className="px-5 py-2">{r.quantidade}</td>
-                    <td className="px-5 py-2 tabular-nums">{new Date(r.horario).toLocaleDateString("pt-BR")}</td>
-                    <td className="px-5 py-2 tabular-nums">{new Date(r.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className="px-5 py-2 tabular-nums">{fmtData(r.data ?? r.horario)}</td>
+                    <td className="px-5 py-2 tabular-nums">{fmtHora(r.horario)}</td>
                     <td className="px-5 py-2">
                       {r.metodoRetirada === "FACIAL"
                         ? <Badge className="bg-primary/10 text-primary border-primary/20 font-medium">Facial</Badge>
@@ -382,6 +410,19 @@ function Relatorios() {
                         ? <Badge variant="destructive">Bloqueado</Badge>
                         : <Badge variant="secondary">Ausente</Badge>}
                     </td>
+                    {isSuperAdmin && (
+                      <td className="px-3 py-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setConfirmDeleteId(r.id)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -389,6 +430,31 @@ function Relatorios() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!confirmDeleteId} onOpenChange={open => !open && setConfirmDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Excluir retirada?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação é permanente e não pode ser desfeita. O registro será removido do banco de dados e os totais do relatório serão recalculados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => confirmDeleteId && deleteMutation.mutate(confirmDeleteId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Sim, excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

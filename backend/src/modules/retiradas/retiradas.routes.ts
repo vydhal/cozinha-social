@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { RetiradasService } from './retiradas.service.js'
 import { confirmarRetiradaSchema, buscarBeneficiarioSchema, validarParamsSchema, validarQuerySchema } from './retiradas.schema.js'
 import { authenticate } from '../../middlewares/authenticate.js'
+import { requireSuperAdmin } from '../../middlewares/rbac.js'
 import { createAuditLog } from '../../shared/utils/audit.js'
 
 // ~1.5 MB em base64 (imagem JPEG 640x480 a ~95% de qualidade cabe bem abaixo disso)
@@ -43,6 +44,21 @@ export async function retiradasRoutes(fastify: FastifyInstance) {
   fastify.get('/lista-diaria', async (request, reply) => {
     const { date, unidadeId } = request.query as { date?: string; unidadeId?: string }
     const result = await service.getListaDiaria(date, unidadeId)
+    return reply.send({ data: result })
+  })
+
+  fastify.delete('/:id', { preHandler: [requireSuperAdmin()] }, async (request, reply) => {
+    const user = request.user as { id: string }
+    const { id } = validarParamsSchema.parse(request.params)
+    const result = await service.deletarRetirada(id)
+    await createAuditLog({
+      userId: user.id,
+      acao: 'DELETAR_RETIRADA',
+      recurso: 'retiradas',
+      recursoId: id,
+      detalhes: {},
+      ip: request.ip,
+    })
     return reply.send({ data: result })
   })
 

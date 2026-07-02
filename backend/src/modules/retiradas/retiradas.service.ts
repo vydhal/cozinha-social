@@ -106,6 +106,16 @@ export class RetiradasService {
     const today = input.data ? new Date(input.data + 'T00:00:00') : new Date()
     today.setHours(0, 0, 0, 0)
 
+    // Quando retroativo, horario = data informada + hora atual (preserva ordem cronológica do dia)
+    const horario = input.data
+      ? (() => {
+          const now = new Date()
+          const d = new Date(input.data + 'T00:00:00')
+          d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds())
+          return d
+        })()
+      : new Date()
+
     const beneficiario = await prisma.beneficiario.findFirst({
       where: { id: input.beneficiarioId, deletadoEm: null },
     })
@@ -181,6 +191,7 @@ export class RetiradasService {
               unidadeId: input.unidadeId,
               observacao: input.observacao,
               data: today,
+              horario,
             },
             include: {
               beneficiario: { select: { nome: true, cpf: true, bairro: true } },
@@ -208,11 +219,19 @@ export class RetiradasService {
             unidadeId: input.unidadeId,
             observacao: err.message,
             data: today,
+            horario,
           },
         })
       }
       throw err
     }
+  }
+
+  async deletarRetirada(id: string) {
+    const retirada = await prisma.retirada.findUnique({ where: { id } })
+    if (!retirada) throw new NotFoundError('Retirada')
+    await prisma.retirada.delete({ where: { id } })
+    return { id }
   }
 
   async reconhecerFace(imageBase64: string) {

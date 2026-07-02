@@ -144,6 +144,26 @@ Definidas como secrets no Portainer:
 - Backend: `validarBeneficiario(id, data?)` e `confirmar(input)` aceitam `data` opcional (`YYYY-MM-DD`); checagens de duplicata e limite diário são feitas para a data informada, não para `today`
 - API client: `validar(id, data?)` e `confirmar(id, unidadeId?, metodo?, data?)` repassam a data
 - Calendário usa `react-day-picker` (shadcn/ui Calendar) com locale `pt-BR` (date-fns) e desabilita datas futuras
+- **Fix timezone**: `toIsoDate()` usa `getFullYear/getMonth/getDate` (local) em vez de `toISOString()` (UTC) para evitar virar dia anterior em Brasil (UTC-3)
+- **Fix `horario` retroativo**: `confirmar()` no backend agora seta `horario` explicitamente como data retroativa + hora atual quando `input.data` é fornecido; sem o fix, `horario` ficava com `now()` (data de hoje) mesmo para registros de datas passadas
+
+### Sessão 5 — Exclusão de retiradas (Superadmin) + correções de exibição
+
+#### Exclusão de retiradas no relatório (`_app.relatorios.tsx`)
+- Motivação: registros retroativos com data errada precisavam ser apagados pelo operador responsável
+- Backend: `DELETE /retiradas/:id` com guard `requireSuperAdmin()` + audit log `DELETAR_RETIRADA`
+- Service: `RetiradasService.deletarRetirada(id)` — hard delete (sem soft-delete no modelo Retirada)
+- Frontend API: `relatoriosApi.deletarRetirada(id)` via `api.delete`
+- UI: coluna extra com botão 🗑 visível **apenas para SUPERADMIN** (`user?.role === "SUPERADMIN"`)
+- AlertDialog de confirmação com aviso de ação permanente antes de executar
+- Após exclusão: `queryClient.invalidateQueries(["relatorio"])` recarrega a tabela automaticamente
+
+#### Correção: coluna DATA no relatório usava `horario` em vez de `data`
+- Problema: a coluna DATA na tabela, CSV e PDF lia `r.horario` (DateTime de quando foi digitado) em vez de `r.data` (Date correto do registro)
+- Para registros retroativos lançados antes do fix do `horario`, `data=2026-06-01` mas `horario=2026-07-02T13:XX` → coluna mostrava julho
+- Fix: funções `fmtData(data)` e `fmtHora(horario)` separadas; DATA usa `r.data` com `{ timeZone: "UTC" }` para evitar virar dia anterior em Brasil (UTC-3), HORÁRIO continua usando `r.horario`
+- Fix aplicado em: tabela da tela, exportação CSV e geração de PDF
+- O filtro do backend já usava `data: dateRange` corretamente — apenas a exibição estava errada
 
 ### Sessão 3 — PDF autenticado + Integração entre sistemas
 
