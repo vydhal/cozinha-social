@@ -165,6 +165,69 @@ Definidas como secrets no Portainer:
 - Fix aplicado em: tabela da tela, exportação CSV e geração de PDF
 - O filtro do backend já usava `data: dateRange` corretamente — apenas a exibição estava errada
 
+### Sessão 6 — Compatibilidade com tablets + escolha de câmera
+
+#### Problema: aplicação abria totalmente sem estilo em tablet Android
+- Sintoma: em tablet com Chrome antigo a página renderizava como HTML puro (fonte serifada,
+  inputs nativos, logo em tamanho natural). Desktop e celular OK.
+- **Não era layout/responsividade** — o React carregava e buscava dados normalmente
+  (o logo vinha da API); apenas o CSS inteiro era descartado.
+- Causa raiz: o Tailwind v4 mira Chrome 111+ / Safari 16.4+ e envolve **toda** a folha
+  em `@layer theme/base/components/utilities`. Navegador sem suporte a cascade layers
+  (Chrome < 99, Safari < 15.4) ignora o at-rule e descarta tudo que está dentro.
+
+#### Solução: pipeline de downlevel do CSS
+- Tailwind passou a rodar via **PostCSS** (`postcss.config.mjs`) em vez do plugin
+  `@tailwindcss/vite` — necessário para pós-processar o CSS já gerado.
+  `@tailwindcss/vite` foi desinstalado; `vite.config.ts` não tem mais o plugin.
+- `postcss-legacy-compat.mjs` (plugin local) faz três coisas:
+  1. **Achata as cascade layers** — o fix crítico. Seguro aqui porque o Tailwind emite as
+     layers na mesma ordem em que as declara e as utilities são classes únicas no fim.
+  2. Remove `in oklab` de `--tw-gradient-position` (senão o gradiente do `/painel` some
+     e sobra texto branco em fundo transparente).
+  3. Adiciona fallback em `vh` antes de `svh`/`dvh`/`lvh` (`h-dvh` do AppShell,
+     `min-h-svh` do login) — unidades só existem a partir do Chrome 108.
+- `postcss-preset-env` com `stage: false` e apenas `oklab-function: { preserve: false }`:
+  converte `oklch()` → `rgb()`. Necessário porque as cores do tema vivem em custom
+  properties (`--primary: oklch(...)`), onde fallback por dupla declaração **não** funciona.
+- Alvo de navegadores no campo `browserslist` do `package.json` (Chrome/Android ≥ 87).
+
+#### Armadilhas encontradas (não repetir)
+- `@csstools/postcss-cascade-layers` (feature `cascade-layers` do preset-env) **trava o
+  build** (>10 min sem terminar) no volume de CSS deste projeto — por isso o plugin local.
+- A feature `gradient-interpolation-method` do preset-env **também trava o build**.
+- `postcss-selector-parser` precisa ser instalado explicitamente (peer dep faltante).
+- Não é preciso mexer em `color-mix()`: o Tailwind v4.2 já emite fallback em `@supports`
+  para todo modificador de opacidade (`bg-primary/10`). Verificado: 0 ocorrências
+  desprotegidas no CSS final.
+- Media queries já saem como `(min-width: 40rem)`, não em range syntax — sem problema.
+
+#### Como validar após mudanças no CSS
+No `dist/client/assets/*.css` gerado, o esperado é `@layer` = 0 e `oklch` = 0.
+
+#### Seleção de câmera no reconhecimento facial (`_app.reconhecimento.tsx`)
+- Motivação: celulares e tablets têm câmera frontal e traseira, e o código fixava
+  `facingMode: "user"` — o operador não conseguia usar a traseira.
+- Select aparece **apenas quando há mais de uma câmera** (`cameras.length > 1`),
+  então em desktop com uma webcam a tela fica inalterada.
+- A escolha é persistida em `localStorage` na chave `mdb-camera-id`.
+- `startCamera(preferredId?)` chama `stopStream()` antes de abrir a nova: vários
+  Androids recusam abrir a segunda câmera com a primeira ainda ativa.
+- Se o `deviceId` salvo não existir mais (troca de aparelho, ids rotacionados),
+  o `getUserMedia` falha → limpa a preferência e reabre com `facingMode: "user"`.
+- `enumerateDevices()` roda **depois** do `getUserMedia`: antes da permissão os
+  rótulos vêm vazios. Sem rótulo, exibe "Câmera 1/2".
+- Dispositivos com `deviceId` vazio são filtrados (Radix Select quebra com value "").
+
+#### Ainda usam `facingMode: "user"` fixo (sem seletor)
+Captura de biometria em `_app.beneficiarios.$id.tsx` (linhas ~701 e ~1253).
+Se for necessário, vale extrair um hook compartilhado a partir do reconhecimento.
+
+#### Cor primária é injetada em runtime
+`_app.tsx` sobrescreve `--primary`/`--ring`/`--sidebar-primary`/`--chart-1` via
+`style.setProperty()` a partir de `corPrimaria` das configurações. Ou seja, a cor
+que aparece na tela **não** é a do `styles.css` — não confunda com regressão de tema.
+
 ### Sessão 3 — PDF autenticado + Integração entre sistemas
 
 #### Relatório PDF autenticado

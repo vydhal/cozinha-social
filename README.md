@@ -17,8 +17,9 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 | Banco de dados | PostgreSQL 16 |
 | Face Service | Python + FastAPI + MediaPipe + face_recognition (dlib/HOG) |
 | Mobile/PWA | Layout `h-dvh` com scroll interno — bottom nav sempre fixo |
+| Compatibilidade | CSS com downlevel via PostCSS — funciona em tablets/navegadores antigos |
 | Infraestrutura | Docker Swarm via Portainer + Traefik (SSL automático) |
-| Imagens | Docker Hub — `vydhal/mesa-do-bem-*:1.0.1` |
+| Imagens | Docker Hub — `vydhal/mesa-do-bem-*` (versão vigente no `stack.yml`) |
 
 ---
 
@@ -64,6 +65,8 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 
 ### Reconhecimento Facial
 - Câmera ao vivo via `getUserMedia`
+- **Escolha da câmera** (frontal/traseira) em celulares e tablets — o seletor só
+  aparece quando há mais de uma, e a preferência do operador fica salva no aparelho
 - Captura de frame e identificação entre todos os beneficiários cadastrados
 - Detector primário: **MediaPipe** (tolerante a ângulos, baixa luz, distâncias variadas)
 - Fallback automático para **HOG** (dlib) se MediaPipe não detectar
@@ -145,6 +148,8 @@ cozinha/
 │       ├── schema.prisma
 │       └── seed.ts
 ├── frontend/                 # TanStack Start + React
+│   ├── postcss.config.mjs            # Tailwind + downlevel p/ navegadores antigos
+│   ├── postcss-legacy-compat.mjs     # Achata @layer, ajusta gradientes e svh/dvh
 │   └── src/
 │       ├── routes/           # _app.*.tsx (autenticadas), login.tsx, painel.tsx
 │       ├── components/       # AppShell, StatCard, FotoCaptura, BiometriaCard...
@@ -307,6 +312,10 @@ uvicorn main:app --reload --port 8000
 | Exportar CSV quebrava (`cannot read replace`) | Campos do banco podiam ser `null` | `?? ""` em todos os campos antes de processar |
 | Bottom nav scrollava junto no mobile/PWA | `min-h-svh` permitia scroll da página inteira | `h-dvh` + `overflow-y-auto` no `main` + `MobileBottomNav` fora da área scrollável |
 | CEP aceitava dígitos ilimitados | Campo sem restrição no onChange | Função `maskCep` em `utils.ts`, aplicada em `novo.tsx`, `$id.tsx` e `cadastro.tsx` |
+| Aplicação abria **sem nenhum estilo** em tablet Android | Tailwind v4 envolve toda a folha em `@layer`; navegador antigo (Chrome < 99) ignora o at-rule e descarta tudo dentro dele | Tailwind movido para PostCSS + plugin local que achata as cascade layers |
+| Cores sumiam em navegador antigo | Cores do tema em `oklch()` dentro de custom properties, onde fallback por dupla declaração não funciona | `postcss-preset-env` converte `oklch()` → `rgb()` |
+| Fundo do `/painel` sumia (texto branco em fundo branco) | `linear-gradient(... in oklab, ...)` inválido em navegador antigo descartava a declaração | `in oklab` removido do `--tw-gradient-position` no build |
+| Reconhecimento facial só usava a câmera frontal | `facingMode: "user"` fixo no `getUserMedia` | Seletor de câmera com preferência salva em `localStorage` |
 
 ---
 
@@ -337,3 +346,60 @@ uvicorn main:app --reload --port 8000
 - Campo de entrada para o código; aceita URL com `?codigo=...` para pré-preencher
 - Exibe resultado: **documento** (stats do relatório) ou **retirada individual** (dados da pessoa)
 - Destinada ao uso pelo Ministério Público e órgãos de fiscalização
+
+---
+
+## Sessão 6 — Suporte a tablets + escolha de câmera
+
+### Aplicação abria sem estilo em tablets
+
+**Sintoma:** em tablet Android a página renderizava como HTML puro — fonte serifada,
+campos nativos, logo em tamanho original. Desktop e celular funcionavam normalmente.
+
+**Diagnóstico:** não era responsividade. O React carregava e buscava dados sem erro
+(a logo vinha da API); o que acontecia é que **a folha de estilo inteira era descartada**.
+O Tailwind v4 mira Chrome 111+ / Safari 16.4+ e envolve todo o CSS em
+`@layer theme/base/components/utilities`. Navegador sem suporte a cascade layers
+(Chrome < 99, Safari < 15.4) ignora o at-rule e joga fora tudo que está dentro.
+
+**Solução:** o Tailwind passou a rodar via **PostCSS** em vez do plugin do Vite,
+permitindo pós-processar o CSS gerado:
+
+| Arquivo | Papel |
+|---|---|
+| `frontend/postcss.config.mjs` | Pipeline: Tailwind → compat → `postcss-preset-env` |
+| `frontend/postcss-legacy-compat.mjs` | Achata `@layer`, remove `in oklab` dos gradientes, adiciona fallback `vh` para `svh`/`dvh` |
+| `frontend/package.json` → `browserslist` | Alvo de navegadores (Chrome/Android ≥ 87) |
+
+**Como validar após qualquer mudança de CSS** — no `dist/client/assets/*.css` gerado,
+tanto `@layer` quanto `oklch` devem aparecer **zero** vezes.
+
+> **Atenção ao mexer no pipeline:** a feature `cascade-layers` do `postcss-preset-env`
+> (e o `@csstools/postcss-cascade-layers`) **travam o build** — mais de 10 minutos sem
+> concluir no volume de CSS deste projeto. A feature `gradient-interpolation-method`
+> tem o mesmo problema. Por isso o plugin local enxuto em vez das soluções prontas.
+
+Não foi preciso tratar `color-mix()`: o Tailwind 4.2 já emite fallback em `@supports`
+para todo modificador de opacidade (`bg-primary/10`).
+
+### Escolha de câmera no reconhecimento facial
+
+Celulares e tablets têm câmera frontal e traseira, mas o código fixava a frontal.
+
+- Seletor aparece **apenas quando há mais de uma câmera** — desktop com uma webcam
+  fica inalterado
+- Preferência do operador salva no aparelho (`localStorage`, chave `mdb-camera-id`)
+- A câmera atual é liberada antes de abrir a nova: vários Androids recusam abrir a
+  segunda enquanto a primeira estiver ativa
+- Se a câmera salva não existir mais no aparelho, volta para a frontal em vez de travar
+- Os nomes das câmeras só ficam legíveis após a permissão ser concedida; sem rótulo,
+  exibe "Câmera 1/2"
+
+**Ainda sem seletor:** a captura de biometria em `_app.beneficiarios.$id.tsx` continua
+fixada na câmera frontal.
+
+### Observação sobre a cor da interface
+
+A cor primária vista na tela **não** é a do `styles.css` — `_app.tsx` sobrescreve
+`--primary` em runtime a partir da `corPrimaria` definida em Configurações. Ao investigar
+suspeita de problema de tema, verifique a configuração da unidade antes do CSS.

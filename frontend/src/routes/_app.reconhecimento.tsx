@@ -6,12 +6,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScanFace, Camera, CheckCircle2, XCircle, Ban, Loader2, AlertCircle, CameraOff } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ScanFace,
+  Camera,
+  CheckCircle2,
+  XCircle,
+  Ban,
+  Loader2,
+  AlertCircle,
+  CameraOff,
+  SwitchCamera,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { retiradasApi } from "@/lib/api/retiradas.api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/reconhecimento")({ component: Reconhecimento });
+
+// Celulares e tablets têm câmera frontal e traseira — a escolha do operador
+// fica salva para não precisar reselecionar a cada reconhecimento.
+const CAMERA_STORAGE_KEY = "mdb-camera-id";
 
 type ScanResult =
   | { status: "encontrado"; beneficiario: any; validacoes: any; confianca: number }
@@ -28,28 +49,70 @@ function Reconhecimento() {
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraId, setCameraId] = useState<string | null>(null);
 
-  const startCamera = useCallback(async () => {
-    setCameraError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraOn(true);
-    } catch {
-      setCameraError("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
-    }
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
   }, []);
 
+  const startCamera = useCallback(
+    async (preferredId?: string) => {
+      setCameraError(null);
+      // Alguns aparelhos não abrem a segunda câmera enquanto a primeira estiver
+      // ativa, então liberamos a atual antes de pedir a nova.
+      stopStream();
+      const base = { width: { ideal: 640 }, height: { ideal: 480 } };
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: preferredId
+              ? { ...base, deviceId: { exact: preferredId } }
+              : { ...base, facingMode: "user" },
+          });
+        } catch (err) {
+          // A câmera salva pode não existir neste aparelho (troca de dispositivo,
+          // ou o navegador rotacionou os ids) — descarta e usa a padrão.
+          if (!preferredId) throw err;
+          window.localStorage.removeItem(CAMERA_STORAGE_KEY);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { ...base, facingMode: "user" },
+          });
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        // Os rótulos das câmeras só ficam legíveis depois da permissão concedida,
+        // por isso a listagem vem depois do getUserMedia e não antes.
+        const todas = await navigator.mediaDevices.enumerateDevices();
+        setCameras(todas.filter((d) => d.kind === "videoinput" && d.deviceId));
+        setCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? null);
+        setCameraOn(true);
+      } catch {
+        setCameraOn(false);
+        setCameraError("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
+      }
+    },
+    [stopStream],
+  );
+
+  const trocarCamera = useCallback(
+    (id: string) => {
+      window.localStorage.setItem(CAMERA_STORAGE_KEY, id);
+      setCameraId(id);
+      startCamera(id);
+    },
+    [startCamera],
+  );
+
   useEffect(() => {
-    startCamera();
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
-  }, [startCamera]);
+    startCamera(window.localStorage.getItem(CAMERA_STORAGE_KEY) ?? undefined);
+    return () => stopStream();
+  }, [startCamera, stopStream]);
 
   const scanMut = useMutation({
     mutationFn: async () => {
@@ -74,7 +137,12 @@ function Reconhecimento() {
         setResult({ status: "ja_retirou", beneficiario: data.beneficiario, mensagem });
         return;
       }
-      setResult({ status: "encontrado", beneficiario: data.beneficiario, validacoes: data.validacoes, confianca: data.confianca ?? 0 });
+      setResult({
+        status: "encontrado",
+        beneficiario: data.beneficiario,
+        validacoes: data.validacoes,
+        confianca: data.confianca ?? 0,
+      });
     },
     onError: (e: any) => {
       setResult({ status: "erro", mensagem: e?.message ?? "Erro ao processar reconhecimento" });
@@ -82,7 +150,8 @@ function Reconhecimento() {
   });
 
   const confirmarMut = useMutation({
-    mutationFn: (beneficiarioId: string) => retiradasApi.confirmar(beneficiarioId, undefined, "FACIAL"),
+    mutationFn: (beneficiarioId: string) =>
+      retiradasApi.confirmar(beneficiarioId, undefined, "FACIAL"),
     onSuccess: () => {
       toast.success("Entrega confirmada!");
       setResult(null);
@@ -91,11 +160,17 @@ function Reconhecimento() {
     onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
   });
 
-  const reset = () => { setResult(null); scanMut.reset(); };
+  const reset = () => {
+    setResult(null);
+    scanMut.reset();
+  };
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Reconhecimento facial" subtitle="Posicione o rosto da pessoa dentro do quadro." />
+      <PageHeader
+        title="Reconhecimento facial"
+        subtitle="Posicione o rosto da pessoa dentro do quadro."
+      />
 
       <div className="mx-auto max-w-md">
         <Card className="overflow-hidden">
@@ -125,7 +200,15 @@ function Reconhecimento() {
                   <div>
                     <CameraOff className="mx-auto mb-3 h-12 w-12 text-destructive" />
                     <p className="text-sm font-medium text-destructive">{cameraError}</p>
-                    <Button variant="outline" className="mt-4" onClick={startCamera}>Tentar novamente</Button>
+                    <Button
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() =>
+                        startCamera(window.localStorage.getItem(CAMERA_STORAGE_KEY) ?? undefined)
+                      }
+                    >
+                      Tentar novamente
+                    </Button>
                   </div>
                 </div>
               )}
@@ -133,7 +216,10 @@ function Reconhecimento() {
               {/* Frame overlay — só quando câmera ativa e sem resultado */}
               {cameraOn && !result && (
                 <div className="pointer-events-none absolute inset-6 rounded-3xl border-2 border-primary/70">
-                  <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
+                  <Corner pos="tl" />
+                  <Corner pos="tr" />
+                  <Corner pos="bl" />
+                  <Corner pos="br" />
                 </div>
               )}
 
@@ -166,15 +252,47 @@ function Reconhecimento() {
             </div>
 
             <div className="space-y-2 p-4">
+              {/* Só aparece quando há mais de uma câmera (celular/tablet). */}
+              {cameras.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <SwitchCamera className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Select
+                    value={cameraId ?? undefined}
+                    onValueChange={trocarCamera}
+                    disabled={scanMut.isPending}
+                  >
+                    <SelectTrigger className="h-10 flex-1">
+                      <SelectValue placeholder="Selecionar câmera" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cameras.map((c, i) => (
+                        <SelectItem key={c.deviceId} value={c.deviceId}>
+                          {c.label || `Câmera ${i + 1}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <Button
-                onClick={() => { setResult(null); scanMut.mutate(); }}
+                onClick={() => {
+                  setResult(null);
+                  scanMut.mutate();
+                }}
                 disabled={scanMut.isPending || !cameraOn || !!cameraError}
                 className="h-14 w-full gap-2 text-base"
               >
-                {scanMut.isPending
-                  ? <><Loader2 className="h-5 w-5 animate-spin" />Reconhecendo...</>
-                  : <><ScanFace className="h-5 w-5" />{result ? "Tentar novamente" : "Iniciar reconhecimento"}</>
-                }
+                {scanMut.isPending ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Reconhecendo...
+                  </>
+                ) : (
+                  <>
+                    <ScanFace className="h-5 w-5" />
+                    {result ? "Tentar novamente" : "Iniciar reconhecimento"}
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
@@ -194,7 +312,12 @@ function Corner({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
   return <span className={`absolute h-6 w-6 border-primary ${cls}`} />;
 }
 
-function ResultPanel({ result, onConfirmar, confirming, onReset }: {
+function ResultPanel({
+  result,
+  onConfirmar,
+  confirming,
+  onReset,
+}: {
   result: ScanResult;
   onConfirmar: (id: string) => void;
   confirming: boolean;
@@ -211,14 +334,19 @@ function ResultPanel({ result, onConfirmar, confirming, onReset }: {
           <Avatar className="h-14 w-14">
             <AvatarImage src={b.fotoUrl} />
             <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-              {b.nome?.split(" ").map((n: string) => n[0]).slice(0, 2).join("")}
+              {b.nome
+                ?.split(" ")
+                .map((n: string) => n[0])
+                .slice(0, 2)
+                .join("")}
             </AvatarFallback>
           </Avatar>
           <div className="text-left">
             <div className="font-bold">{b.nome}</div>
             <div className="text-sm text-muted-foreground">{b.bairro}</div>
             <Badge className="mt-1 bg-primary text-primary-foreground text-xs">
-              {b.quentinhasAutorizadas} quentinha{b.quentinhasAutorizadas > 1 ? "s" : ""} autorizada{b.quentinhasAutorizadas > 1 ? "s" : ""}
+              {b.quentinhasAutorizadas} quentinha{b.quentinhasAutorizadas > 1 ? "s" : ""} autorizada
+              {b.quentinhasAutorizadas > 1 ? "s" : ""}
             </Badge>
           </div>
         </div>
@@ -226,7 +354,9 @@ function ResultPanel({ result, onConfirmar, confirming, onReset }: {
           Confiança: {Math.round(result.confianca * 100)}%
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onReset} className="flex-1">Cancelar</Button>
+          <Button variant="outline" onClick={onReset} className="flex-1">
+            Cancelar
+          </Button>
           <Button onClick={() => onConfirmar(b.id)} disabled={confirming} className="flex-1">
             {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar entrega"}
           </Button>
@@ -245,7 +375,9 @@ function ResultPanel({ result, onConfirmar, confirming, onReset }: {
         <div className="font-bold">{b?.nome}</div>
         <div className="mt-1 text-sm text-muted-foreground">{result.mensagem}</div>
         <div className="mt-4 flex gap-2">
-          <Button variant="outline" onClick={onReset} className="flex-1">OK</Button>
+          <Button variant="outline" onClick={onReset} className="flex-1">
+            OK
+          </Button>
           <Button
             variant="destructive"
             onClick={() => onConfirmar(b.id)}
@@ -269,7 +401,9 @@ function ResultPanel({ result, onConfirmar, confirming, onReset }: {
         <div className="mt-1 text-sm text-muted-foreground">
           Realize o cadastro biométrico ou busque por CPF.
         </div>
-        <Button variant="outline" onClick={onReset} className="mt-4 w-full">Tentar novamente</Button>
+        <Button variant="outline" onClick={onReset} className="mt-4 w-full">
+          Tentar novamente
+        </Button>
       </div>
     );
   }
@@ -282,7 +416,9 @@ function ResultPanel({ result, onConfirmar, confirming, onReset }: {
       </div>
       <div className="font-bold">Erro no reconhecimento</div>
       <div className="mt-1 text-sm text-muted-foreground">{result.mensagem}</div>
-      <Button variant="outline" onClick={onReset} className="mt-4 w-full">Tentar novamente</Button>
+      <Button variant="outline" onClick={onReset} className="mt-4 w-full">
+        Tentar novamente
+      </Button>
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import { defineConfig } from "vite";
-import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig(async ({ command }) => {
@@ -11,7 +10,9 @@ export default defineConfig(async ({ command }) => {
     tanstackStart({
       server: { entry: "server" },
     }),
-    tailwindcss(),
+    // O Tailwind roda via PostCSS (postcss.config.mjs), e não pelo plugin do
+    // Vite, para que o downlevel de cascade layers/oklch seja aplicado na
+    // saída gerada — ver comentários em postcss.config.mjs.
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
     react(),
   ];
