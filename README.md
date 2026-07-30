@@ -316,6 +316,7 @@ uvicorn main:app --reload --port 8000
 | Cores sumiam em navegador antigo | Cores do tema em `oklch()` dentro de custom properties, onde fallback por dupla declaração não funciona | `postcss-preset-env` converte `oklch()` → `rgb()` |
 | Fundo do `/painel` sumia (texto branco em fundo branco) | `linear-gradient(... in oklab, ...)` inválido em navegador antigo descartava a declaração | `in oklab` removido do `--tw-gradient-position` no build |
 | Reconhecimento facial só usava a câmera frontal | `facingMode: "user"` fixo no `getUserMedia` | Seletor de câmera com preferência salva em `localStorage` |
+| Preview de câmera pequeno/descentralizado no tablet (cadastro e biometria) | Container do vídeo sem `w-full` encolhia dentro do `grid` do `DialogContent` | `mx-auto aspect-square w-full max-w-[20rem]` no box + dialog com scroll |
 
 ---
 
@@ -396,7 +397,17 @@ Celulares e tablets têm câmera frontal e traseira, mas o código fixava a fron
   exibe "Câmera 1/2"
 
 **Ainda sem seletor:** a captura de biometria em `_app.beneficiarios.$id.tsx` continua
-fixada na câmera frontal.
+fixada na câmera frontal (proposital — a pessoa se posiciona olhando para a tela).
+
+### Preview de câmera desalinhado no tablet (cadastro)
+
+Nos dialogs de foto do beneficiário e de captura facial, o vídeo aparecia pequeno e
+fora do centro no tablet. O container do vídeo não tinha `w-full`; dentro do
+`DialogContent` (que é um `grid`), sem largura explícita o box encolhia para o tamanho
+do conteúdo em vez de ocupar a largura toda — a tela de reconhecimento, que já
+funcionava, tinha esse `w-full`. Corrigido nos dois dialogs com
+`mx-auto aspect-square w-full max-w-[20rem]` no box do vídeo, e `max-h-[90vh]
+overflow-y-auto` no dialog para rolar caso ultrapasse a altura da tela.
 
 ### Observação sobre a cor da interface
 

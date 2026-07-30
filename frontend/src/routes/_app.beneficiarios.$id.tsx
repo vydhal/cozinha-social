@@ -793,9 +793,12 @@ function CameraDialog({ open, onClose, videoRef, canvasRef, captured, onCapture,
 }) {
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-sm">
         <DialogHeader><DialogTitle>Foto do beneficiário</DialogTitle></DialogHeader>
-        <div className="overflow-hidden rounded-xl bg-black aspect-square">
+        {/* w-full + mx-auto garantem que o preview ocupe a largura e fique
+            centralizado dentro do grid do DialogContent — sem w-full o box
+            encolhia no tablet e o vídeo aparecia pequeno e deslocado. */}
+        <div className="mx-auto aspect-square w-full max-w-[20rem] overflow-hidden rounded-xl bg-black">
           {captured
             ? <img src={captured} className="h-full w-full object-cover" alt="Preview" />
             : <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
@@ -1300,9 +1303,11 @@ function BiometriaCard({ status, onRegistrar, saving }: {
           {status === "VERIFICADA" ? "Atualizar biometria" : "Registrar biometria"}
         </Button>
         <Dialog open={open} onOpenChange={v => { if (!v) close(); }}>
-          <DialogContent className="sm:max-w-sm">
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-sm">
             <DialogHeader><DialogTitle>Captura facial</DialogTitle></DialogHeader>
-            <div className="aspect-square overflow-hidden rounded-xl bg-black">
+            {/* w-full + mx-auto: sem largura explícita o box encolhia no tablet
+                e o vídeo saía pequeno e fora do centro. */}
+            <div className="mx-auto aspect-square w-full max-w-[20rem] overflow-hidden rounded-xl bg-black">
               {captured
                 ? <img src={captured} alt="Prévia" className="h-full w-full object-cover" />
                 : <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />}

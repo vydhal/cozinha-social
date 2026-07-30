@@ -223,6 +223,16 @@ No `dist/client/assets/*.css` gerado, o esperado é `@layer` = 0 e `oklch` = 0.
 Captura de biometria em `_app.beneficiarios.$id.tsx` (linhas ~701 e ~1253).
 Se for necessário, vale extrair um hook compartilhado a partir do reconhecimento.
 
+#### Fix: preview de câmera desalinhado no tablet (`_app.beneficiarios.$id.tsx`)
+- Sintoma: nos dialogs "Foto do beneficiário" (`FotoCaptura`) e "Captura facial"
+  (`BiometriaCard`), o vídeo aparecia pequeno e fora do centro no tablet.
+- Causa: o container do vídeo (`aspect-square`) não tinha `w-full`. Dentro do
+  `DialogContent` (que é `grid`), sem largura explícita o box encolhia para o
+  tamanho do conteúdo em vez de ocupar a largura toda. A tela de reconhecimento,
+  que já funcionava, tinha `w-full` — era a diferença.
+- Fix nos dois dialogs: `mx-auto aspect-square w-full max-w-[20rem]` no box do vídeo
+  + `max-h-[90vh] overflow-y-auto` no `DialogContent` (rola se passar da tela).
+
 #### Cor primária é injetada em runtime
 `_app.tsx` sobrescreve `--primary`/`--ring`/`--sidebar-primary`/`--chart-1` via
 `style.setProperty()` a partir de `corPrimaria` das configurações. Ou seja, a cor
