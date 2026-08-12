@@ -234,7 +234,12 @@ function ListaDiaria() {
                 ) : listaFiltrada.map((r: any, i: number) => (
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{String(i + 1).padStart(3, "0")}</td>
-                    <td className="px-4 py-3 font-medium">{r.beneficiario?.nome ?? "—"}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {r.beneficiario?.nome ?? "—"}
+                      {r.retiradoPorNome && (
+                        <span className="block text-xs font-normal text-muted-foreground">retirado por {r.retiradoPorNome}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">{r.beneficiario?.cpf ?? "—"}</td>
                     <td className="px-4 py-3 tabular-nums">{new Date(r.horario).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
                     <td className="px-4 py-3">{r.quantidade}</td>

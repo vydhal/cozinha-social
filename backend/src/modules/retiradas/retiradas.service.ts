@@ -59,26 +59,22 @@ export class RetiradasService {
     if (!beneficiario) throw new NotFoundError('Beneficiário')
     if (beneficiario.status !== 'ATIVO') throw new AppError('Beneficiário inativo ou bloqueado', 422)
 
-    const [jaRetirou, familiaJaRetirou, familiaInfo, ultimaRetirada] = await Promise.all([
+    // Cada pessoa retira a SUA quentinha (sem somar família). O vínculo apenas
+    // habilita retirar por procuração os membros marcados com "Pode retirar".
+    const [jaRetirou, vinculadosRaw, ultimaRetirada] = await Promise.all([
       prisma.retirada.findFirst({ where: { beneficiarioId, status: 'ENTREGUE', data: today } }),
       beneficiario.familiaId
-        ? prisma.retirada.findFirst({
+        ? prisma.beneficiario.findMany({
             where: {
               familiaId: beneficiario.familiaId,
-              status: 'ENTREGUE',
-              data: today,
-              beneficiarioId: { not: beneficiarioId },
+              id: { not: beneficiarioId },
+              deletadoEm: null,
+              status: 'ATIVO',
+              podeRetirar: true,
             },
-            include: { beneficiario: { select: { nome: true } } },
+            select: { id: true, nome: true, cpf: true, fotoUrl: true, quentinhasAutorizadas: true },
           })
-        : null,
-      beneficiario.familiaId
-        ? prisma.beneficiario.aggregate({
-            where: { familiaId: beneficiario.familiaId, deletadoEm: null, status: 'ATIVO' },
-            _sum: { quentinhasAutorizadas: true },
-            _count: true,
-          })
-        : null,
+        : [],
       prisma.retirada.findFirst({
         where: { beneficiarioId, status: 'ENTREGUE' },
         orderBy: { horario: 'desc' },
@@ -86,17 +82,31 @@ export class RetiradasService {
       }),
     ])
 
-    const quantidadeFamilia = familiaInfo?._sum.quentinhasAutorizadas ?? beneficiario.quentinhasAutorizadas
-    const membrosFamilia = familiaInfo?._count ?? 1
+    // Marca quais vinculados já retiraram hoje (não podem ser retirados de novo).
+    const jaRetiraramHoje = vinculadosRaw.length
+      ? await prisma.retirada.findMany({
+          where: {
+            beneficiarioId: { in: vinculadosRaw.map((v) => v.id) },
+            status: 'ENTREGUE',
+            data: today,
+          },
+          select: { beneficiarioId: true },
+        })
+      : []
+    const idsJaRetiraram = new Set(jaRetiraramHoje.map((r) => r.beneficiarioId))
+
+    const vinculados = vinculadosRaw.map((v) => ({
+      ...v,
+      jaRetirou: idsJaRetiraram.has(v.id),
+    }))
 
     return {
       beneficiario,
       validacoes: {
         jaRetirou: !!jaRetirou,
-        familiaJaRetirou: familiaJaRetirou ? familiaJaRetirou.beneficiario.nome : null,
-        podeRetirar: !jaRetirou && !familiaJaRetirou,
-        quantidadeFamilia,
-        membrosFamilia,
+        podeRetirar: !jaRetirou,
+        quantidade: beneficiario.quentinhasAutorizadas,
+        vinculados,
       },
       ultimaRetirada,
     }
@@ -122,19 +132,12 @@ export class RetiradasService {
     if (!beneficiario) throw new NotFoundError('Beneficiário')
     if (beneficiario.status !== 'ATIVO') throw new AppError('Beneficiário inativo ou bloqueado', 422)
 
-    // Calcula cota e limite fora da transação (dados estáticos)
-    const [familiaAgg, config] = await Promise.all([
-      beneficiario.familiaId
-        ? prisma.beneficiario.aggregate({
-            where: { familiaId: beneficiario.familiaId, deletadoEm: null, status: 'ATIVO' },
-            _sum: { quentinhasAutorizadas: true },
-          })
-        : null,
-      prisma.configuracao.findFirst({
-        where: input.unidadeId ? { unidadeId: input.unidadeId } : {},
-      }),
-    ])
-    const quantidade = familiaAgg?._sum.quentinhasAutorizadas ?? beneficiario.quentinhasAutorizadas
+    // Cada pessoa retira a SUA cota — sem somar a família. Quando A retira pela
+    // pessoa X (procuração), o frontend chama confirmar() de novo com o id do X.
+    const config = await prisma.configuracao.findFirst({
+      where: input.unidadeId ? { unidadeId: input.unidadeId } : {},
+    })
+    const quantidade = beneficiario.quentinhasAutorizadas
     const limiteDiario = config?.limiteDiario ?? 100
 
     // Seção crítica: checagens de duplicata + limite + criação em transação serializable
@@ -142,21 +145,10 @@ export class RetiradasService {
     try {
       const retirada = await prisma.$transaction(
         async (tx: Prisma.TransactionClient) => {
-          const [jaRetirou, familiaJaRetirou, totalHoje] = await Promise.all([
+          const [jaRetirou, totalHoje] = await Promise.all([
             tx.retirada.findFirst({
               where: { beneficiarioId: input.beneficiarioId, status: 'ENTREGUE', data: today },
             }),
-            beneficiario.familiaId
-              ? tx.retirada.findFirst({
-                  where: {
-                    familiaId: beneficiario.familiaId,
-                    status: 'ENTREGUE',
-                    data: today,
-                    beneficiarioId: { not: input.beneficiarioId },
-                  },
-                  include: { beneficiario: { select: { nome: true } } },
-                })
-              : null,
             tx.retirada.aggregate({
               where: {
                 data: today,
@@ -170,13 +162,6 @@ export class RetiradasService {
           if (jaRetirou)
             throw new AppError('Beneficiário já realizou retirada hoje', 409, 'DUPLICADO_BLOQUEADO')
 
-          if (familiaJaRetirou)
-            throw new AppError(
-              `Família já atendida hoje. ${familiaJaRetirou.beneficiario.nome} já retirou as quentinhas da família.`,
-              409,
-              'FAMILIA_JA_RETIROU',
-            )
-
           if ((totalHoje._sum.quantidade ?? 0) + quantidade > limiteDiario)
             throw new AppError('Limite diário de quentinhas atingido', 422, 'LIMITE_DIARIO')
 
@@ -188,6 +173,7 @@ export class RetiradasService {
               quantidade,
               status: 'ENTREGUE',
               metodoRetirada: (input.metodoRetirada ?? 'MANUAL') as any,
+              retiradoPorNome: input.retiradoPorNome,
               unidadeId: input.unidadeId,
               observacao: input.observacao,
               data: today,
@@ -205,10 +191,7 @@ export class RetiradasService {
       return retirada
     } catch (err) {
       // Se foi bloqueio de duplicata, registra a tentativa fora da transação (que já foi revertida)
-      if (
-        err instanceof AppError &&
-        (err.code === 'DUPLICADO_BLOQUEADO' || err.code === 'FAMILIA_JA_RETIROU')
-      ) {
+      if (err instanceof AppError && err.code === 'DUPLICADO_BLOQUEADO') {
         await prisma.retirada.create({
           data: {
             beneficiarioId: input.beneficiarioId,
@@ -250,12 +233,16 @@ export class RetiradasService {
       embedding_base64: Buffer.from(f.embedding).toString('base64'),
     }))
 
+    // Threshold de match tunável por env (menor = mais rígido, menos falso
+    // positivo). 0.5 é bem mais seguro que o antigo 0.6 contra sósias.
+    const threshold = Number(process.env.FACE_MATCH_THRESHOLD ?? 0.5)
+
     let faceRes: Response
     try {
       faceRes = await fetch(`${faceServiceUrl}/face/compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: imageBase64, embeddings, threshold: 0.6 }),
+        body: JSON.stringify({ image_base64: imageBase64, embeddings, threshold }),
         signal: AbortSignal.timeout(10000),
       })
     } catch {

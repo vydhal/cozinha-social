@@ -22,15 +22,10 @@ export class BeneficiariosService {
     const existing = await this.repo.findByCpf(data.cpf)
     if (existing) throw new ConflictError('CPF já cadastrado')
 
-    const familia = await this.repo.findOrCreateFamilia({
-      endereco: data.endereco,
-      numero: data.numero,
-      bairro: data.bairro,
-      cidade: data.cidade,
-      cep: data.cep,
-    })
-
-    return this.repo.create({ ...data, familiaId: familia.id })
+    // Sem vínculo automático por endereço: a pessoa nasce independente
+    // (familiaId nulo). O agrupamento é feito manualmente em "Membros da
+    // família vinculados" quando o operador quiser que alguém retire pela outra.
+    return this.repo.create(data)
   }
 
   async update(id: string, data: UpdateBeneficiarioInput & { fotoUrl?: string }) {
@@ -42,17 +37,8 @@ export class BeneficiariosService {
       if (dup) throw new ConflictError('CPF já cadastrado')
     }
 
-    if (data.endereco || data.numero || data.bairro || data.cidade || data.cep) {
-      const familia = await this.repo.findOrCreateFamilia({
-        endereco: data.endereco ?? existing.endereco,
-        numero: data.numero ?? existing.numero,
-        bairro: data.bairro ?? existing.bairro,
-        cidade: data.cidade ?? existing.cidade,
-        cep: data.cep ?? existing.cep,
-      })
-      ;(data as Record<string, unknown>).familiaId = familia.id
-    }
-
+    // Endereço NÃO altera vínculo de família: o agrupamento é manual e opt-in.
+    // Editar o endereço não junta nem separa ninguém automaticamente.
     return this.repo.update(id, data as Parameters<typeof this.repo.update>[1])
   }
 
@@ -172,13 +158,25 @@ export class BeneficiariosService {
   async vincularMembro(id: string, membroId: string) {
     const beneficiario = await this.repo.findById(id)
     if (!beneficiario) throw new NotFoundError('Beneficiário')
-    if (!beneficiario.familiaId) throw new AppError('Beneficiário não possui família cadastrada', 400)
     const membro = await this.repo.findById(membroId)
     if (!membro) throw new NotFoundError('Membro')
     if (membro.id === id) throw new AppError('Não é possível vincular a si mesmo', 400)
+
+    // O beneficiário-âncora nasce sem família (independente). No primeiro
+    // vínculo, cria-se a família sob demanda e o âncora entra nela.
+    let familiaId = beneficiario.familiaId
+    if (!familiaId) {
+      const familia = await this.repo.createFamilia({
+        endereco: beneficiario.endereco, numero: beneficiario.numero,
+        bairro: beneficiario.bairro, cidade: beneficiario.cidade, cep: beneficiario.cep,
+      })
+      familiaId = familia.id
+      await prisma.beneficiario.update({ where: { id }, data: { familiaId } })
+    }
+
     return prisma.beneficiario.update({
       where: { id: membroId },
-      data: { familiaId: beneficiario.familiaId },
+      data: { familiaId },
       select: { id: true, nome: true, cpf: true, fotoUrl: true, status: true, podeRetirar: true, quentinhasAutorizadas: true },
     })
   }
@@ -188,11 +186,10 @@ export class BeneficiariosService {
     if (!beneficiario) throw new NotFoundError('Beneficiário')
     const membro = await this.repo.findById(membroId)
     if (!membro) throw new NotFoundError('Membro')
-    const novaFamilia = await this.repo.findOrCreateFamilia({
-      endereco: membro.endereco, numero: membro.numero,
-      bairro: membro.bairro, cidade: membro.cidade, cep: membro.cep,
-    })
-    await prisma.beneficiario.update({ where: { id: membroId }, data: { familiaId: novaFamilia.id } })
+    // Volta o membro a ser independente (sem família). Antes o código recriava a
+    // família pelo endereço e, para quem morava junto, devolvia a MESMA família —
+    // por isso não era possível separar membros do mesmo endereço.
+    await prisma.beneficiario.update({ where: { id: membroId }, data: { familiaId: null } })
   }
 
   async importCsv(buffer: Buffer, fileName: string) {
@@ -234,14 +231,8 @@ export class BeneficiariosService {
       }
 
       try {
-        const familia = await this.repo.findOrCreateFamilia({
-          endereco: row.endereco?.trim() ?? '',
-          numero: row.numero?.trim() ?? 's/n',
-          bairro: row.bairro?.trim() ?? '',
-          cidade: row.cidade?.trim() ?? '',
-          cep: row.cep?.trim() ?? '00000-000',
-        })
-
+        // Importados nascem independentes (sem família), igual ao cadastro
+        // manual. O vínculo é feito depois em "Membros da família vinculados".
         await prisma.beneficiario.create({
           data: {
             nome: row.nome.trim(),
@@ -270,7 +261,6 @@ export class BeneficiariosService {
             nis: row.nis?.trim() || undefined,
             deficiencia: row.deficiencia ? parseBool(row.deficiencia) : undefined,
             qualDeficiencia: row.qualDeficiencia?.trim() || undefined,
-            familiaId: familia.id,
             status: 'PENDENTE',
           },
         })

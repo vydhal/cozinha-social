@@ -79,14 +79,15 @@ async function main() {
     { endereco: 'Travessa Esperança',  numero: '3',   bairro: 'Bela Vista',    cidade: 'São Paulo', cep: '04004-000' },
     { endereco: 'Alameda das Acácias', numero: '101', bairro: 'Morumbi',       cidade: 'São Paulo', cep: '05005-000' },
   ]
+  // A Familia não tem mais unique por endereço (vínculo é opt-in). Para o seed
+  // demo continuar idempotente, procura por endereço e cria só se não existir.
   const familias = await Promise.all(
-    familiasSeed.map((f) =>
-      prisma.familia.upsert({
-        where: { endereco_numero_bairro_cep: { endereco: f.endereco, numero: f.numero, bairro: f.bairro, cep: f.cep } },
-        create: f,
-        update: {},
-      }),
-    ),
+    familiasSeed.map(async (f) => {
+      const existente = await prisma.familia.findFirst({
+        where: { endereco: f.endereco, numero: f.numero, bairro: f.bairro, cep: f.cep },
+      })
+      return existente ?? prisma.familia.create({ data: f })
+    }),
   )
   console.log('✅ Famílias demo')
 

@@ -6,6 +6,8 @@ export const confirmarRetiradaSchema = z.object({
   observacao: z.string().optional(),
   metodoRetirada: z.enum(['FACIAL', 'MANUAL']).optional(),
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de data inválido (YYYY-MM-DD)').optional(),
+  // Nome de quem está retirando por procuração (retirada de um vinculado ausente).
+  retiradoPorNome: z.string().max(200).optional(),
 })
 
 export const validarQuerySchema = z.object({

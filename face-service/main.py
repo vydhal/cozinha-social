@@ -7,9 +7,23 @@ import face_recognition
 import mediapipe as mp
 import base64
 import logging
+import os
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+# ── Parâmetros de acurácia (tunáveis por env, sem rebuild) ──────────────────
+# THRESHOLD: distância máxima para considerar match. Menor = mais rígido.
+#   dlib recomenda 0.6 (permissivo); 0.5 corta a maioria dos falsos positivos.
+# MARGIN: separação mínima entre o melhor e o 2º melhor match. Se dois cadastros
+#   estão quase igualmente perto (sósias), o match é ambíguo e é rejeitado.
+# QUERY_JITTERS: nº de amostras aleatórias ao codificar a face consultada —
+#   embedding mais estável, melhora a discriminação (custo de latência baixo).
+# REGISTER_JITTERS: idem no cadastro (afeta só embeddings novos).
+DEFAULT_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.5"))
+DEFAULT_MARGIN = float(os.getenv("FACE_MATCH_MARGIN", "0.06"))
+QUERY_JITTERS = int(os.getenv("FACE_QUERY_JITTERS", "3"))
+REGISTER_JITTERS = int(os.getenv("FACE_REGISTER_JITTERS", "5"))
 
 # Inicializa MediaPipe uma vez (model_selection=1 = full-range, até 5m, tolerante a ângulos)
 _mp_detector = mp.solutions.face_detection.FaceDetection(
@@ -35,13 +49,14 @@ class RegisterFaceRequest(BaseModel):
 class ValidateFaceRequest(BaseModel):
     image_base64: str
     embedding_base64: str
-    threshold: float = 0.6
+    threshold: float = DEFAULT_THRESHOLD
 
 
 class CompareFacesRequest(BaseModel):
     image_base64: str
     embeddings: list[dict]
-    threshold: float = 0.6
+    threshold: float = DEFAULT_THRESHOLD
+    margin: float = DEFAULT_MARGIN
 
 
 def decode_image(image_base64: str) -> np.ndarray:
@@ -130,7 +145,7 @@ async def register_face(req: RegisterFaceRequest):
                 detail="Múltiplas faces detectadas. Certifique-se de que apenas uma pessoa esteja na imagem.",
             )
 
-        encodings = face_recognition.face_encodings(img, locations, num_jitters=1)
+        encodings = face_recognition.face_encodings(img, locations, num_jitters=REGISTER_JITTERS)
         embedding = encode_embedding(encodings[0])
 
         top, right, bottom, left = locations[0]
@@ -160,7 +175,7 @@ async def validate_face(req: ValidateFaceRequest):
         if not locations:
             return {"match": False, "confianca": 0.0, "motivo": "face_nao_detectada"}
 
-        encodings = face_recognition.face_encodings(img, locations, num_jitters=1)
+        encodings = face_recognition.face_encodings(img, locations, num_jitters=QUERY_JITTERS)
         known_embedding = decode_embedding(req.embedding_base64)
 
         distances = face_recognition.face_distance([known_embedding], encodings[0])
@@ -191,28 +206,48 @@ async def compare_faces(req: CompareFacesRequest):
         if not locations:
             return {"encontrado": False, "motivo": "face_nao_detectada"}
 
-        encodings = face_recognition.face_encodings(img, locations, num_jitters=1)
+        encodings = face_recognition.face_encodings(img, locations, num_jitters=QUERY_JITTERS)
         unknown_encoding = encodings[0]
 
         known_embeddings = [decode_embedding(e["embedding_base64"]) for e in req.embeddings]
         ids = [e["beneficiario_id"] for e in req.embeddings]
 
         distances = face_recognition.face_distance(known_embeddings, unknown_encoding)
-        best_idx = int(np.argmin(distances))
+        order = np.argsort(distances)  # índices do mais próximo ao mais distante
+        best_idx = int(order[0])
         best_distance = float(distances[best_idx])
         confianca = max(0.0, 1.0 - best_distance)
 
-        logger.info(f"Reconhecimento: distância={best_distance:.4f} threshold={req.threshold} confiança={confianca:.2%}")
+        # 2º melhor: usado para o teste de ambiguidade (sósias).
+        second_distance = float(distances[int(order[1])]) if len(distances) > 1 else None
+        gap = (second_distance - best_distance) if second_distance is not None else None
 
-        if best_distance <= req.threshold:
+        logger.info(
+            f"Reconhecimento: melhor={best_distance:.4f} 2o={second_distance if second_distance is None else round(second_distance, 4)} "
+            f"gap={gap if gap is None else round(gap, 4)} threshold={req.threshold} margin={req.margin} conf={confianca:.2%}"
+        )
+
+        # Rejeita se acima do threshold (não é a pessoa)...
+        if best_distance > req.threshold:
+            return {"encontrado": False, "confianca": round(confianca, 4), "motivo": "abaixo_do_threshold"}
+
+        # ...ou se o 2º colocado está quase igual de perto: match ambíguo, pode
+        # ser um sósia. Melhor recusar e cair no CPF do que entregar errado.
+        if gap is not None and gap < req.margin:
+            logger.warning(f"Match ambíguo rejeitado: gap={gap:.4f} < margin={req.margin}")
             return {
-                "encontrado": True,
-                "beneficiario_id": ids[best_idx],
+                "encontrado": False,
                 "confianca": round(confianca, 4),
                 "distance": round(best_distance, 4),
+                "motivo": "ambiguo",
             }
 
-        return {"encontrado": False, "confianca": round(confianca, 4), "motivo": "abaixo_do_threshold"}
+        return {
+            "encontrado": True,
+            "beneficiario_id": ids[best_idx],
+            "confianca": round(confianca, 4),
+            "distance": round(best_distance, 4),
+        }
     except HTTPException:
         raise
     except Exception as e:

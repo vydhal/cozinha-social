@@ -87,12 +87,10 @@ export class BeneficiariosRepository {
     })
   }
 
-  async findOrCreateFamilia(data: { endereco: string; numero: string; bairro: string; cidade: string; cep: string }) {
-    return prisma.familia.upsert({
-      where: { endereco_numero_bairro_cep: { endereco: data.endereco, numero: data.numero, bairro: data.bairro, cep: data.cep } },
-      create: data,
-      update: {},
-    })
+  // Cria uma família nova (agrupamento explícito). Não faz upsert por endereço:
+  // o vínculo é opt-in, então cada chamada gera um grupo próprio.
+  async createFamilia(data: { endereco: string; numero: string; bairro: string; cidade: string; cep: string }) {
+    return prisma.familia.create({ data })
   }
 
   async countByStatus() {

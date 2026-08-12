@@ -116,7 +116,7 @@ function Relatorios() {
 
   function exportCsv() {
     if (!retiradas.length) return toast.error("Nenhum dado para exportar.");
-    const header = ["Beneficiário", "CPF", "Bairro", "Qtd", "Data", "Horário", "Método", "Status"];
+    const header = ["Beneficiário", "CPF", "Bairro", "Qtd", "Data", "Horário", "Método", "Retirado por", "Status"];
     const rows = retiradas.map(r => [
       r.beneficiario?.nome ?? "",
       r.beneficiario?.cpf ?? "",
@@ -125,6 +125,7 @@ function Relatorios() {
       fmtData(r.data ?? r.horario),
       fmtHora(r.horario),
       r.metodoRetirada === "FACIAL" ? "Facial" : "Manual",
+      r.retiradoPorNome ?? "",
       r.status === "ENTREGUE" ? "Entregue" : r.status === "DUPLICADO_BLOQUEADO" ? "Bloqueado" : "Ausente",
     ]);
     const csv = [header, ...rows].map(row => row.map(v => `"${v.replace(/"/g, '""')}"`).join(";")).join("\n");
@@ -165,8 +166,11 @@ function Relatorios() {
         const metodoCell = isFacial
           ? `<span style="color:#2f9d6b;font-weight:600;">Facial</span><br/><span style="font-size:9px;color:#888;font-family:monospace;">${shortId}</span>`
           : `<span style="color:#666;">Manual</span>`;
+        const retiradoPor = r.retiradoPorNome
+          ? `<br/><span style="font-size:9px;color:#888;">retirado por ${r.retiradoPorNome}</span>`
+          : "";
         return `<tr>
-          <td>${r.beneficiario?.nome ?? "—"}</td>
+          <td>${r.beneficiario?.nome ?? "—"}${retiradoPor}</td>
           <td>${r.beneficiario?.cpf ?? "—"}</td>
           <td>${r.beneficiario?.bairro ?? "—"}</td>
           <td style="text-align:center;">${r.quantidade}</td>
@@ -393,7 +397,12 @@ function Relatorios() {
                   <tr><td colSpan={isSuperAdmin ? 8 : 7} className="px-5 py-6 text-center text-muted-foreground">Nenhuma retirada no período.</td></tr>
                 ) : retiradas.slice(0, 20).map((r: any) => (
                   <tr key={r.id} className="border-b last:border-0">
-                    <td className="px-5 py-2">{r.beneficiario?.nome ?? "—"}</td>
+                    <td className="px-5 py-2">
+                      {r.beneficiario?.nome ?? "—"}
+                      {r.retiradoPorNome && (
+                        <span className="block text-xs text-muted-foreground">retirado por {r.retiradoPorNome}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-2">{r.beneficiario?.bairro ?? "—"}</td>
                     <td className="px-5 py-2">{r.quantidade}</td>
                     <td className="px-5 py-2 tabular-nums">{fmtData(r.data ?? r.horario)}</td>

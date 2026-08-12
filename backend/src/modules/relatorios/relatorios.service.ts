@@ -40,6 +40,7 @@ export class RelatoriosService {
       prisma.retirada.groupBy({
         by: ['familiaId'],
         where: { data: today, status: 'ENTREGUE', ...(unidadeId && { unidadeId }) },
+        _count: true,
       }),
       prisma.retirada.aggregate({
         where: {
@@ -72,7 +73,13 @@ export class RelatoriosService {
       entreguesHoje: entreguesHoje._count,
       quentinhasHoje: entreguesHoje._sum.quantidade ?? 0,
       filaVirtual: filaHoje,
-      familiasAtendidas: familiasHoje.length,
+      // Cada domicílio = 1 família vinculada OU 1 independente (familiaId nulo).
+      // Como o groupBy junta todos os nulos num grupo só, para esses usamos o
+      // _count (nº de retiradas independentes) em vez de contar como 1.
+      familiasAtendidas: familiasHoje.reduce(
+        (acc, g) => acc + (g.familiaId ? 1 : g._count),
+        0,
+      ),
       mediaSemanal,
       comparecimento,
       tentativasDuplicadas: duplicados,
@@ -120,7 +127,8 @@ export class RelatoriosService {
       const bairro = r.beneficiario.bairro
       if (!bairroMap.has(bairro)) bairroMap.set(bairro, { familias: new Set(), total: 0 })
       const entry = bairroMap.get(bairro)!
-      if (r.familiaId) entry.familias.add(r.familiaId)
+      // Independente (familiaId nulo) conta como o próprio domicílio.
+      entry.familias.add(r.familiaId ?? r.beneficiarioId)
       entry.total++
     }
 
@@ -238,7 +246,9 @@ export class RelatoriosService {
         total: statsCount,
         quentinhas: stats._sum?.quantidade ?? 0,
         mediadiaria: Math.round(statsCount / diasPeriodo),
-        familias: retiradas.filter((r, i, arr) => arr.findIndex((x) => x.familiaId === r.familiaId) === i).length,
+        // Domicílios distintos: independentes (familiaId nulo) contam cada um
+        // como o próprio, via beneficiarioId, em vez de colapsarem num só.
+        familias: new Set(retiradas.map((r) => r.familiaId ?? r.beneficiarioId)).size,
         ausencias: ausentes,
         taxa,
       },

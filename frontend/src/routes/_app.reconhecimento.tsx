@@ -14,6 +14,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   ScanFace,
   Camera,
   CheckCircle2,
@@ -23,9 +33,11 @@ import {
   AlertCircle,
   CameraOff,
   SwitchCamera,
+  Users,
+  UtensilsCrossed,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { retiradasApi } from "@/lib/api/retiradas.api";
+import { retiradasApi, type VinculadoRetirada } from "@/lib/api/retiradas.api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/reconhecimento")({ component: Reconhecimento });
@@ -49,6 +61,13 @@ function Reconhecimento() {
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
+
+  // Retirada por procuração: após A retirar, oferece retirar as quentinhas dos
+  // vinculados (com "Pode retirar") que ainda não foram retiradas hoje.
+  const [procuracao, setProcuracao] = useState<{ anchorNome: string; membros: VinculadoRetirada[] } | null>(null);
+  const [procuracaoSel, setProcuracaoSel] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [loadingProcuracao, setLoadingProcuracao] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string | null>(null);
 
@@ -131,10 +150,7 @@ function Reconhecimento() {
         return;
       }
       if (!data.validacoes?.podeRetirar) {
-        const mensagem = data.validacoes?.familiaJaRetirou
-          ? `${data.validacoes.familiaJaRetirou} já retirou as quentinhas da família hoje.`
-          : "Quentinha já retirada hoje.";
-        setResult({ status: "ja_retirou", beneficiario: data.beneficiario, mensagem });
+        setResult({ status: "ja_retirou", beneficiario: data.beneficiario, mensagem: "Quentinha já retirada hoje." });
         return;
       }
       setResult({
@@ -149,16 +165,57 @@ function Reconhecimento() {
     },
   });
 
-  const confirmarMut = useMutation({
-    mutationFn: (beneficiarioId: string) =>
-      retiradasApi.confirmar(beneficiarioId, undefined, "FACIAL"),
-    onSuccess: () => {
+  const confirmarEntrega = async (beneficiarioId: string) => {
+    setConfirming(true);
+    try {
+      await retiradasApi.confirmar(beneficiarioId, undefined, "FACIAL");
       toast.success("Entrega confirmada!");
+      // Se A tem vinculados que ainda não retiraram, abre o fluxo de procuração.
+      const enc = result?.status === "encontrado" ? result : null;
+      const elegiveis: VinculadoRetirada[] = (enc?.validacoes?.vinculados ?? []).filter(
+        (v: VinculadoRetirada) => !v.jaRetirou,
+      );
       setResult(null);
-      navigate({ to: "/" });
-    },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
-  });
+      scanMut.reset();
+      if (elegiveis.length > 0 && enc) {
+        setProcuracao({ anchorNome: enc.beneficiario.nome, membros: elegiveis });
+        setProcuracaoSel(new Set(elegiveis.map((v) => v.id)));
+      } else {
+        navigate({ to: "/" });
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Erro ao confirmar");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const confirmarProcuracao = async () => {
+    if (!procuracao) return;
+    const selecionados = procuracao.membros.filter((m) => procuracaoSel.has(m.id));
+    setLoadingProcuracao(true);
+    let ok = 0;
+    for (const m of selecionados) {
+      try {
+        await retiradasApi.confirmar(m.id, undefined, "MANUAL", undefined, procuracao.anchorNome);
+        ok++;
+      } catch (e: any) {
+        toast.error(`${m.nome.split(" ")[0]}: ${e?.message ?? "erro ao retirar"}`);
+      }
+    }
+    if (ok > 0) toast.success(`${ok} retirada(s) por procuração registrada(s).`);
+    setLoadingProcuracao(false);
+    setProcuracao(null);
+    navigate({ to: "/" });
+  };
+
+  const toggleProcuracao = (id: string) => {
+    setProcuracaoSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const reset = () => {
     setResult(null);
@@ -242,8 +299,8 @@ function Reconhecimento() {
                   >
                     <ResultPanel
                       result={result}
-                      onConfirmar={(id) => confirmarMut.mutate(id)}
-                      confirming={confirmarMut.isPending}
+                      onConfirmar={(id) => confirmarEntrega(id)}
+                      confirming={confirming}
                       onReset={reset}
                     />
                   </motion.div>
@@ -298,6 +355,53 @@ function Reconhecimento() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dialog de retirada por procuração (vinculados) */}
+      <AlertDialog open={!!procuracao} onOpenChange={(v) => { if (!v && !loadingProcuracao) { setProcuracao(null); navigate({ to: "/" }); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Retirar pela família vinculada?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  <span className="font-semibold text-foreground">{procuracao?.anchorNome.split(" ")[0]}</span>{" "}
+                  tem direito a retirar a quentinha de:
+                </p>
+                <div className="divide-y rounded-xl border">
+                  {procuracao?.membros.map((m) => (
+                    <label key={m.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5">
+                      <Checkbox checked={procuracaoSel.has(m.id)} onCheckedChange={() => toggleProcuracao(m.id)} />
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarImage src={m.fotoUrl} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                          {m.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">{m.nome}</div>
+                        <div className="text-xs text-muted-foreground">{m.cpf}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs">Cada selecionado gera uma retirada própria (1 quentinha), registrada como retirada por {procuracao?.anchorNome.split(" ")[0]}.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loadingProcuracao} onClick={() => { setProcuracao(null); navigate({ to: "/" }); }}>
+              Não, só a dele
+            </AlertDialogCancel>
+            <Button className="gap-2" disabled={loadingProcuracao || procuracaoSel.size === 0} onClick={confirmarProcuracao}>
+              {loadingProcuracao ? <Loader2 className="h-4 w-4 animate-spin" /> : <UtensilsCrossed className="h-4 w-4" />}
+              Retirar selecionadas ({procuracaoSel.size})
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

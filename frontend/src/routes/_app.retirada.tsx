@@ -11,13 +11,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Search, ScanFace, CheckCircle2, AlertTriangle, Ban, UtensilsCrossed,
-  Clock, MapPin, Home, Loader2, CalendarDays, CalendarClock,
+  Search, ScanFace, CheckCircle2, Ban, UtensilsCrossed,
+  Clock, MapPin, Home, Loader2, CalendarDays, CalendarClock, Users,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { retiradasApi, type RetiradaValidacao } from "@/lib/api/retiradas.api";
+import { retiradasApi, type RetiradaValidacao, type VinculadoRetirada } from "@/lib/api/retiradas.api";
 import { ApiError } from "@/lib/api/client";
 import { ptBR } from "date-fns/locale";
 
@@ -47,6 +48,12 @@ function Retirada() {
   const [validacao, setValidacao] = useState<RetiradaValidacao | null>(null);
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingConfirm, setLoadingConfirm] = useState(false);
+
+  // Fluxo de retirada por procuração: depois que A retira, oferecemos retirar
+  // as quentinhas dos vinculados (que têm "Pode retirar") que ainda não foram.
+  const [procuracao, setProcuracao] = useState<{ anchorNome: string; membros: VinculadoRetirada[] } | null>(null);
+  const [procuracaoSel, setProcuracaoSel] = useState<Set<string>>(new Set());
+  const [loadingProcuracao, setLoadingProcuracao] = useState(false);
 
   // Date state
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -109,8 +116,16 @@ function Retirada() {
     if (!validacao) return;
     setLoadingConfirm(true);
     try {
+      const anchorNome = validacao.beneficiario.nome;
       await retiradasApi.confirmar(validacao.beneficiario.id, undefined, "MANUAL", dateIsToday ? undefined : dateStr);
-      toast.success(`Entrega confirmada para ${validacao.beneficiario.nome.split(" ")[0]}.`);
+      toast.success(`Entrega confirmada para ${anchorNome.split(" ")[0]}.`);
+
+      // Vinculados que ainda não retiraram → oferece retirada por procuração.
+      const elegiveis = validacao.validacoes.vinculados.filter((v) => !v.jaRetirou);
+      if (elegiveis.length > 0) {
+        setProcuracao({ anchorNome, membros: elegiveis });
+        setProcuracaoSel(new Set(elegiveis.map((v) => v.id)));
+      }
       setValidacao(null);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Erro ao confirmar entrega";
@@ -120,11 +135,37 @@ function Retirada() {
     }
   };
 
+  const confirmarProcuracao = async () => {
+    if (!procuracao) return;
+    const selecionados = procuracao.membros.filter((m) => procuracaoSel.has(m.id));
+    if (selecionados.length === 0) { setProcuracao(null); return; }
+    setLoadingProcuracao(true);
+    let ok = 0;
+    for (const m of selecionados) {
+      try {
+        await retiradasApi.confirmar(m.id, undefined, "MANUAL", dateIsToday ? undefined : dateStr, procuracao.anchorNome);
+        ok++;
+      } catch (err) {
+        toast.error(`${m.nome.split(" ")[0]}: ${err instanceof ApiError ? err.message : "erro ao retirar"}`);
+      }
+    }
+    if (ok > 0) toast.success(`${ok} retirada(s) por procuração registrada(s) por ${procuracao.anchorNome.split(" ")[0]}.`);
+    setLoadingProcuracao(false);
+    setProcuracao(null);
+  };
+
+  const toggleProcuracao = (id: string) => {
+    setProcuracaoSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const b = validacao?.beneficiario ?? null;
   const jaRetirou = validacao?.validacoes.jaRetirou ?? false;
-  const familiaJa = validacao?.validacoes.familiaJaRetirou ?? null;
-  const quantidadeFamilia = validacao?.validacoes.quantidadeFamilia ?? b?.quentinhasAutorizadas ?? 0;
-  const membrosFamilia = validacao?.validacoes.membrosFamilia ?? 1;
+  const quantidade = validacao?.validacoes.quantidade ?? b?.quentinhasAutorizadas ?? 0;
+  const vinculados = validacao?.validacoes.vinculados ?? [];
 
   return (
     <div className="space-y-6">
@@ -208,6 +249,53 @@ function Retirada() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Dialog de retirada por procuração (vinculados) */}
+      <AlertDialog open={!!procuracao} onOpenChange={(v) => { if (!v && !loadingProcuracao) setProcuracao(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Retirar pela família vinculada?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  <span className="font-semibold text-foreground">{procuracao?.anchorNome.split(" ")[0]}</span>{" "}
+                  tem direito a retirar a quentinha de:
+                </p>
+                <div className="divide-y rounded-xl border">
+                  {procuracao?.membros.map((m) => (
+                    <label key={m.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5">
+                      <Checkbox checked={procuracaoSel.has(m.id)} onCheckedChange={() => toggleProcuracao(m.id)} />
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarImage src={m.fotoUrl} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                          {m.nome.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">{m.nome}</div>
+                        <div className="text-xs text-muted-foreground">{m.cpf}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs">Cada selecionado gera uma retirada própria (1 quentinha), registrada como retirada por {procuracao?.anchorNome.split(" ")[0]}.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loadingProcuracao} onClick={() => setProcuracao(null)}>
+              Não, só a dele
+            </AlertDialogCancel>
+            <Button className="gap-2" disabled={loadingProcuracao || procuracaoSel.size === 0} onClick={confirmarProcuracao}>
+              {loadingProcuracao ? <Loader2 className="h-4 w-4 animate-spin" /> : <UtensilsCrossed className="h-4 w-4" />}
+              Retirar selecionadas ({procuracaoSel.size})
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Busca */}
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -257,13 +345,8 @@ function Retirada() {
                     </div>
                   </div>
                   <div className="rounded-2xl border bg-muted/40 px-4 py-3 text-center">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {membrosFamilia > 1 ? `Família (${membrosFamilia})` : "Autorizadas"}
-                    </div>
-                    <div className="text-3xl font-bold text-primary">{quantidadeFamilia}</div>
-                    {membrosFamilia > 1 && (
-                      <div className="text-[10px] text-muted-foreground">quentinhas</div>
-                    )}
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Autorizadas</div>
+                    <div className="text-3xl font-bold text-primary">{quantidade}</div>
                   </div>
                 </div>
 
@@ -278,15 +361,22 @@ function Retirada() {
 
                 {jaRetirou ? (
                   <AlertBox tone="destructive" icon={Ban} title={`Quentinha já retirada em ${selectedDate.toLocaleDateString("pt-BR")}`} message="Esta pessoa já recebeu sua quentinha nesta data. Nova retirada bloqueada." />
-                ) : familiaJa ? (
-                  <AlertBox tone="warning" icon={AlertTriangle} title="Família já contemplada nesta data" message={`${familiaJa} (mesmo endereço) já retirou nesta data.`} />
                 ) : (
-                  <AlertBox tone="success" icon={CheckCircle2} title="Liberado para retirada" message={`${b.quentinhasAutorizadas} quentinha(s) autorizada(s).`} />
+                  <AlertBox
+                    tone="success"
+                    icon={CheckCircle2}
+                    title="Liberado para retirada"
+                    message={
+                      vinculados.length > 0
+                        ? `${quantidade} quentinha(s) autorizada(s). Após confirmar, você poderá retirar também pelos vinculados.`
+                        : `${quantidade} quentinha(s) autorizada(s).`
+                    }
+                  />
                 )}
 
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" onClick={() => setValidacao(null)}>Cancelar</Button>
-                  <Button className="flex-1 h-14 text-base gap-2" disabled={!!jaRetirou || !!familiaJa || loadingConfirm} onClick={confirmar}>
+                  <Button className="flex-1 h-14 text-base gap-2" disabled={!!jaRetirou || loadingConfirm} onClick={confirmar}>
                     {loadingConfirm ? <Loader2 className="h-5 w-5 animate-spin" /> : <UtensilsCrossed className="h-5 w-5" />}
                     {dateIsToday ? "Confirmar entrega" : `Registrar em ${selectedDate.toLocaleDateString("pt-BR")}`}
                   </Button>

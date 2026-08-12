@@ -37,6 +37,12 @@ Definidas como secrets no Portainer:
 - `SEED_DEMO_DATA` (default: false)
 - `INTEGRATION_API_KEY` — chave secreta para o endpoint de integração máquina-a-máquina
 - `PUBLIC_URL` — fixo no stack.yml como `https://cozinha.simplisoft.com.br`
+- `FACE_MATCH_THRESHOLD` (backend + face-service, default `0.5`) — distância máxima para
+  aceitar um match facial. Menor = mais rígido, menos falso positivo. Ver Sessão 7.
+- `FACE_MATCH_MARGIN` (face-service, default `0.06`) — separação mínima entre o melhor e o
+  2º melhor match; abaixo disso o reconhecimento é rejeitado como ambíguo (anti-sósia).
+- `FACE_QUERY_JITTERS` / `FACE_REGISTER_JITTERS` (face-service, default `3` / `5`) — amostras
+  de encoding na consulta e no cadastro.
 
 ---
 
@@ -238,6 +244,61 @@ Se for necessário, vale extrair um hook compartilhado a partir do reconheciment
 `style.setProperty()` a partir de `corPrimaria` das configurações. Ou seja, a cor
 que aparece na tela **não** é a do `styles.css` — não confunda com regressão de tema.
 
+### Sessão 7 — Vínculo de família opcional + retirada por procuração + acurácia facial
+
+#### Vínculo de família deixou de ser automático (opt-in manual)
+- Motivação: o auto-vínculo por endereço somava as quentinhas de todos os membros numa
+  entrega só e bloqueava o resto da família no dia → divergência nos relatórios
+  (1 entrega = N quentinhas; headcount ≠ quentinhas).
+- `Familia` **não é mais única por endereço** — removida a constraint
+  `@@unique([endereco,numero,bairro,cep])`. Família virou um **grupo explícito**, não a
+  identidade do endereço.
+- `create`/`update`/`importCsv`/auto-cadastro público: cada pessoa nasce **independente**
+  (`familiaId` nulo). A retirada já trata nulo como indivíduo (cota própria, sem bloqueio).
+- `vincularMembro`: cria a família **sob demanda** no 1º vínculo. `desvincularMembro`: volta
+  `familiaId = null` (antes recriava pelo endereço e devolvia a MESMA família → não dava para
+  separar quem morava junto).
+- Escopo aplicado: **só daqui pra frente** — dados existentes não foram alterados em massa; o
+  operador separa casos antigos pelo desvincular (que agora funciona).
+- Repo: `findOrCreateFamilia` (upsert por endereço) virou `createFamilia` (create simples).
+
+#### Retirada por procuração (substitui o "soma família + bloqueia família")
+- Cada pessoa retira **a sua** quentinha (1). O vínculo serve para A retirar a quentinha de
+  um vinculado **ausente** (a facial não lê quem não está lá).
+- Fluxo: A retira → o sistema oferece retirar também a quentinha dos vinculados **com o toggle
+  "Pode retirar" ligado** que ainda não retiraram hoje → operador seleciona (checkboxes) →
+  cada selecionado vira **uma linha própria** (1 quentinha), com `retiradoPorNome = A`.
+- O toggle `podeRetirar` **agora é enforçado** (gate da elegibilidade da procuração) — antes
+  era cosmético.
+- Backend: `Retirada.retiradoPorNome String?` (denormalizado); `validarBeneficiario` retorna
+  `validacoes.vinculados[]` (elegíveis, com `jaRetirou`), `quantidade` individual e
+  `podeRetirar = !jaRetirou` (sumiram `familiaJaRetirou`/`quantidadeFamilia`/`membrosFamilia`);
+  `confirmar` aceita `retiradoPorNome`, cota individual, só trava duplicata **por pessoa**.
+- Frontend: dialog de procuração (checkboxes) em `_app.retirada.tsx` e `_app.reconhecimento.tsx`;
+  "retirado por X" exibido em `_app.relatorios.tsx` e `_app.lista-diaria.tsx` (tela, CSV e PDF).
+- Relatórios: contagem de "domicílios/famílias atendidas" passou a usar `familiaId ?? beneficiarioId`
+  como chave (senão os independentes de `familiaId` nulo colapsavam num só).
+
+#### Acurácia do reconhecimento facial (anti falso-positivo)
+- Problema: pessoa parecida (sósia) às vezes era reconhecida como outra.
+- **Threshold 0.6 → 0.5** (distância dlib; menor = mais rígido). O backend envia o threshold de
+  `FACE_MATCH_THRESHOLD` ao `/face/compare` em vez de 0.6 fixo.
+- **Teste de ambiguidade:** se o 2º melhor match está a menos de `FACE_MATCH_MARGIN` (0.06) do
+  melhor, rejeita como `motivo: "ambiguo"` — guard específico contra sósias.
+- **Jitters:** query `FACE_QUERY_JITTERS` (3) e cadastro `FACE_REGISTER_JITTERS` (5) — embeddings
+  mais estáveis.
+- Threshold e margin valem para embeddings **existentes** (sem re-cadastro); o bump de jitters no
+  cadastro só melhora cadastros **novos**. O `model` do `face_encodings` seguiu 'small' de
+  propósito (mudar exigiria re-cadastrar todo mundo).
+- Arquivo: `face-service/main.py` (`/face/compare`, `/face/validate`, `/face/register`).
+- Trade-off: mais rígido troca falso-positivo por eventual falso-negativo (pessoa legítima às
+  vezes não reconhecida → tenta de novo ou busca por CPF). Tudo tunável por env, sem rebuild.
+
+#### Deploy desta sessão
+Backend + frontend + face-service (`.\build.ps1` → **[5] Tudo**) e **redeploy da stack completa**
+no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constraint e adiciona
+`retiradoPorNome`).
+
 ### Sessão 3 — PDF autenticado + Integração entre sistemas
 
 #### Relatório PDF autenticado
@@ -297,11 +358,11 @@ que aparece na tela **não** é a do `styles.css` — não confunda com regress�
 
 ### Prisma (`backend/prisma/schema.prisma`)
 Modelos principais:
-- `Beneficiario`: `podeRetirar Boolean @default(true)`
+- `Beneficiario`: `podeRetirar Boolean @default(true)` — gate da retirada por procuração (Sessão 7)
 - `Configuracao`: `cadastroPublicoAtivo Boolean`, `cadastroPublicoToken String?`
 - `FilaEntrada`: fichas do dia com senha zero-padded
-- `Familia`: agrupa beneficiários por endereço
-- `Retirada`: `metodoRetirada MetodoRetirada @default(MANUAL)`
+- `Familia`: **grupo explícito** (opt-in), não mais único por endereço (Sessão 7)
+- `Retirada`: `metodoRetirada MetodoRetirada @default(MANUAL)`, `retiradoPorNome String?` (procuração)
 - `DocumentoRelatorio`: código `REL-YYYYMMDD-XXXXX`, período, totais, geradoPorId
 
 ---

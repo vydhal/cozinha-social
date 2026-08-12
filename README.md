@@ -60,8 +60,11 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 ### Retiradas
 - Busca de beneficiário por nome ou CPF
 - Validação automática: cota do dia, duplicidade, status
-- Confirmação de retirada com quantidade de quentinhas
-- Bloqueio automático de duplicadas no mesmo dia
+- Cada pessoa retira **a sua** quentinha (cota individual — sem somar família)
+- Bloqueio automático de duplicadas no mesmo dia (por pessoa)
+- **Retirada por procuração**: se o beneficiário tem familiares vinculados com "Pode retirar"
+  ligado, após confirmar a dele o sistema oferece retirar também a dos vinculados ausentes —
+  cada um vira uma linha própria, marcada como "retirado por [nome]"
 
 ### Reconhecimento Facial
 - Câmera ao vivo via `getUserMedia`
@@ -71,8 +74,10 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 - Detector primário: **MediaPipe** (tolerante a ângulos, baixa luz, distâncias variadas)
 - Fallback automático para **HOG** (dlib) se MediaPipe não detectar
 - Embeddings gerados via `face_recognition` (dlib)
-- Exibe resultado: encontrado / já retirou / não reconhecido / erro
-- Confirmação direta da retirada após identificação
+- **Acurácia anti falso-positivo**: threshold rígido (0.5) + teste de ambiguidade contra
+  sósias + jitters no encoding — tudo tunável por env (ver seção de deploy)
+- Exibe resultado: encontrado / já retirou / não reconhecido / ambíguo / erro
+- Confirmação direta da retirada após identificação, com fluxo de procuração para vinculados
 
 ### Fila Virtual
 - Entrada na fila pelo operador
@@ -176,6 +181,17 @@ cozinha/
 | `NOME_COZINHA` | Nome exibido na interface (padrão: `Cozinha Solidária`) |
 | `LIMITE_DIARIO` | Cota inicial de quentinhas (padrão: `100`) |
 | `SEED_DEMO_DATA` | `true` para criar beneficiários e usuários de demo |
+
+### Variáveis opcionais — acurácia do reconhecimento facial
+
+Tunáveis sem rebuild; sem elas valem os defaults (mais rígidos que antes).
+
+| Variável | Serviço | Default | Descrição |
+|---|---|---|---|
+| `FACE_MATCH_THRESHOLD` | backend + face-service | `0.5` | Distância máxima para aceitar match. Menor = mais rígido. Sósia passando? baixe para `0.45`. Legítimo falhando? suba para `0.55` |
+| `FACE_MATCH_MARGIN` | face-service | `0.06` | Separação mínima entre o 1º e o 2º melhor match; abaixo disso, rejeita como ambíguo (anti-sósia) |
+| `FACE_QUERY_JITTERS` | face-service | `3` | Amostras de encoding na consulta (estabilidade) |
+| `FACE_REGISTER_JITTERS` | face-service | `5` | Amostras de encoding no cadastro (só afeta cadastros novos) |
 
 ### Procedimento
 
@@ -317,6 +333,8 @@ uvicorn main:app --reload --port 8000
 | Fundo do `/painel` sumia (texto branco em fundo branco) | `linear-gradient(... in oklab, ...)` inválido em navegador antigo descartava a declaração | `in oklab` removido do `--tw-gradient-position` no build |
 | Reconhecimento facial só usava a câmera frontal | `facingMode: "user"` fixo no `getUserMedia` | Seletor de câmera com preferência salva em `localStorage` |
 | Preview de câmera pequeno/descentralizado no tablet (cadastro e biometria) | Container do vídeo sem `w-full` encolhia dentro do `grid` do `DialogContent` | `mx-auto aspect-square w-full max-w-[20rem]` no box + dialog com scroll |
+| Vínculo automático de família por endereço causava divergência (1 entrega = N quentinhas) | `Familia` era única por endereço; retirada somava a cota de todos e bloqueava a família | Vínculo virou manual/opt-in; cada um retira a sua; retirada por procuração para vinculados |
+| Reconhecimento facial aceitava pessoas parecidas (falso positivo) | Threshold folgado (0.6) e sem teste de ambiguidade | Threshold 0.5, teste de margem contra 2º melhor match, jitters — tunável por env |
 
 ---
 
@@ -414,3 +432,59 @@ overflow-y-auto` no dialog para rolar caso ultrapasse a altura da tela.
 A cor primária vista na tela **não** é a do `styles.css` — `_app.tsx` sobrescreve
 `--primary` em runtime a partir da `corPrimaria` definida em Configurações. Ao investigar
 suspeita de problema de tema, verifique a configuração da unidade antes do CSS.
+
+---
+
+## Sessão 7 — Família opcional, retirada por procuração e acurácia facial
+
+### Vínculo de família virou manual (opt-in)
+
+**Problema:** a `Familia` era **única por endereço** — todo mundo no mesmo endereço era
+forçado ao mesmo grupo. Na retirada, entregava-se a **soma** das quentinhas de todos numa
+linha só e o resto da família ficava bloqueado. Resultado: nos relatórios, 1 entrega
+aparecia com N quentinhas e o headcount não batia com o total de quentinhas. O "desvincular"
+também não funcionava para quem morava junto (recriava a mesma família pelo endereço).
+
+**Solução:** removida a constraint de endereço único da `Familia`; ela virou um **grupo
+explícito**. Cada beneficiário nasce **independente** (`familiaId` nulo) no cadastro, edição,
+importação CSV e auto-cadastro público. O vínculo passou a ser 100% manual, pela seção
+"Membros da família vinculados". Aplicado **só daqui pra frente** — dados existentes não foram
+alterados em massa; o operador separa casos antigos pelo desvincular (que agora funciona).
+
+### Retirada por procuração
+
+O vínculo agora serve para uma pessoa retirar a quentinha de um **familiar ausente** (a facial
+não lê quem não está presente):
+
+- Cada pessoa retira **a sua** quentinha (cota individual, sem somar).
+- Depois de confirmar, se há vinculados com **"Pode retirar"** ligado que ainda não retiraram,
+  o sistema oferece (checkboxes) retirar também a deles.
+- Cada selecionado gera uma **linha própria** (1 quentinha), marcada com `retiradoPorNome` —
+  aparece como "retirado por [nome]" na tela, no CSV e no PDF.
+- O toggle **"Pode retirar"** — que antes era só visual — **agora controla de fato** quem é
+  elegível para a procuração.
+
+Vale nos dois fluxos: retirada manual (`/retirada`) e reconhecimento facial (`/reconhecimento`).
+
+### Acurácia do reconhecimento facial (anti falso-positivo)
+
+Pessoas parecidas às vezes eram reconhecidas como outra. Três ajustes em `face-service/main.py`:
+
+1. **Threshold 0.6 → 0.5** (distância dlib; menor = mais rígido). O backend passou a enviar o
+   threshold de `FACE_MATCH_THRESHOLD` em vez de 0.6 fixo.
+2. **Teste de ambiguidade:** se o 2º melhor match está a menos de `FACE_MATCH_MARGIN` do melhor,
+   rejeita como ambíguo — guard específico contra sósias.
+3. **Jitters** no encoding (query e cadastro) para embeddings mais estáveis.
+
+Threshold e margem valem para os cadastros **existentes** (sem re-registrar); o ajuste de jitters
+no cadastro só melhora cadastros **novos**. Tudo tunável por env (ver seção de deploy). O modelo de
+alinhamento do `face_encodings` seguiu `small` de propósito — mudar exigiria re-cadastrar todos.
+
+**Trade-off:** mais rígido troca falso-positivo por eventual falso-negativo (pessoa legítima às
+vezes não reconhecida → tenta de novo ou busca por CPF). Preferível a entregar para a pessoa errada.
+
+### Deploy desta sessão
+
+Toca **backend + frontend + face-service** e muda o schema (remove a constraint de `Familia`,
+adiciona `retiradoPorNome`). Publicar com `.\build.ps1` → **[5] Tudo** e fazer **redeploy da stack
+completa** no Portainer (o serviço `migrate` roda o `prisma db push`).

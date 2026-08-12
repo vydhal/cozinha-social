@@ -111,7 +111,9 @@ model Familia {
   membros      Beneficiario[]
   retiradas    Retirada[]
 
-  @@unique([endereco, numero, bairro, cep])
+  // Sem unique por endereço: família é um agrupamento EXPLÍCITO (opt-in via
+  // "Membros da família vinculados"), não a identidade do endereço. Duas pessoas
+  // no mesmo endereço são independentes por padrão.
   @@map("familias")
 }
 
@@ -283,6 +285,10 @@ model Retirada {
   quantidade     Int
   status         RetiradaStatus @default(ENTREGUE)
   observacao     String?
+  // Preenchido quando a quentinha foi retirada por um familiar vinculado no
+  // lugar do titular (retirada por procuração). Guardamos o nome (denormalizado)
+  // para o histórico permanecer correto mesmo se o titular for renomeado.
+  retiradoPorNome String?
   metodoRetirada MetodoRetirada @default(MANUAL)
   data           DateTime       @default(dbgenerated("CURRENT_DATE")) @db.Date
   horario        DateTime       @default(now())

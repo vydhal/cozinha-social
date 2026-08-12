@@ -1,5 +1,14 @@
 import { api } from "./client";
 
+export interface VinculadoRetirada {
+  id: string;
+  nome: string;
+  cpf: string;
+  fotoUrl?: string;
+  quentinhasAutorizadas: number;
+  jaRetirou: boolean;
+}
+
 export interface RetiradaValidacao {
   beneficiario: {
     id: string; nome: string; cpf: string; bairro: string; fotoUrl?: string;
@@ -8,10 +17,10 @@ export interface RetiradaValidacao {
   };
   validacoes: {
     jaRetirou: boolean;
-    familiaJaRetirou: string | null;
     podeRetirar: boolean;
-    quantidadeFamilia: number;
-    membrosFamilia: number;
+    quantidade: number;
+    // Membros vinculados que A pode retirar por procuração (toggle "Pode retirar").
+    vinculados: VinculadoRetirada[];
   };
   ultimaRetirada?: { data: string; horario: string } | null;
 }
@@ -22,6 +31,7 @@ export interface Retirada {
   operador: { nome: string };
   quantidade: number;
   status: "ENTREGUE" | "DUPLICADO_BLOQUEADO" | "AUSENTE" | "CANCELADO";
+  retiradoPorNome?: string | null;
   horario: string;
   data: string;
 }
@@ -33,8 +43,20 @@ export const retiradasApi = {
   validar: (id: string, data?: string) =>
     api.get<RetiradaValidacao>(`/retiradas/validar/${id}${data ? `?data=${data}` : ""}`),
 
-  confirmar: (beneficiarioId: string, unidadeId?: string, metodoRetirada: "FACIAL" | "MANUAL" = "MANUAL", data?: string) =>
-    api.post<Retirada>("/retiradas/confirmar", { beneficiarioId, unidadeId, metodoRetirada, ...(data && { data }) }),
+  confirmar: (
+    beneficiarioId: string,
+    unidadeId?: string,
+    metodoRetirada: "FACIAL" | "MANUAL" = "MANUAL",
+    data?: string,
+    retiradoPorNome?: string,
+  ) =>
+    api.post<Retirada>("/retiradas/confirmar", {
+      beneficiarioId,
+      unidadeId,
+      metodoRetirada,
+      ...(data && { data }),
+      ...(retiradoPorNome && { retiradoPorNome }),
+    }),
 
   listaDiaria: (date?: string, unidadeId?: string) =>
     api.get<{
@@ -56,7 +78,12 @@ export const retiradasApi = {
         quentinhasAutorizadas: number; pessoasCasa: number;
         biometriaStatus: string; status: string;
       };
-      validacoes?: { jaRetirou: boolean; familiaJaRetirou: string | null; podeRetirar: boolean };
+      validacoes?: {
+        jaRetirou: boolean;
+        podeRetirar: boolean;
+        quantidade: number;
+        vinculados: VinculadoRetirada[];
+      };
       ultimaRetirada?: { data: string; horario: string } | null;
     }>("/retiradas/reconhecer", { imageBase64 }),
 };

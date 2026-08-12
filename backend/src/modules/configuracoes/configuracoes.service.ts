@@ -92,26 +92,8 @@ export class ConfiguracoesService {
     const existing = await prisma.beneficiario.findFirst({ where: { cpf, deletadoEm: null } })
     if (existing) throw new Error('CPF já cadastrado')
 
-    const familia = await prisma.familia.upsert({
-
-      where: {
-        endereco_numero_bairro_cep: {
-          endereco: String(data.endereco ?? ''),
-          numero: String(data.numero ?? 's/n'),
-          bairro: String(data.bairro ?? ''),
-          cep: String(data.cep ?? '00000-000'),
-        },
-      },
-      create: {
-        endereco: String(data.endereco ?? ''),
-        numero: String(data.numero ?? 's/n'),
-        bairro: String(data.bairro ?? ''),
-        cidade: String(data.cidade ?? ''),
-        cep: String(data.cep ?? '00000-000'),
-      },
-      update: {},
-    })
-
+    // Auto-cadastro público nasce independente (sem família), igual ao cadastro
+    // manual. O vínculo é feito depois em "Membros da família vinculados".
     return prisma.beneficiario.create({
       data: {
         nome: String(data.nome),
@@ -130,7 +112,6 @@ export class ConfiguracoesService {
         quentinhasAutorizadas: Number(data.quentinhasAutorizadas ?? 1),
         observacoes: data.observacoes ? String(data.observacoes) : undefined,
         status: 'PENDENTE',
-        familiaId: familia.id,
         unidadeId: config.unidadeId ?? undefined,
       },
       select: { id: true, nome: true, status: true },
