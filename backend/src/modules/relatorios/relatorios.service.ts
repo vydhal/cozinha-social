@@ -256,6 +256,73 @@ export class RelatoriosService {
     }
   }
 
+  /**
+   * Base agrupada por beneficiário: quantas quentinhas cada um retirou no período,
+   * com o detalhamento por dia (data + método). Usada no PDF "Base usuários".
+   */
+  async getBaseUsuarios(filters: { periodo?: Periodo; de?: string; ate?: string; bairro?: string; unidadeId?: string }) {
+    const { periodo = 'mes', de, ate, bairro, unidadeId } = filters
+    const dateRange = buildDateRange(periodo, de, ate)
+
+    const retiradas = await prisma.retirada.findMany({
+      where: {
+        data: dateRange,
+        status: 'ENTREGUE',
+        ...(unidadeId && { unidadeId }),
+        ...(bairro && { beneficiario: { bairro } }),
+      },
+      orderBy: [{ beneficiarioId: 'asc' }, { horario: 'asc' }],
+      select: {
+        beneficiarioId: true,
+        quantidade: true,
+        data: true,
+        horario: true,
+        metodoRetirada: true,
+        retiradoPorNome: true,
+        beneficiario: { select: { nome: true, cpf: true, bairro: true } },
+      },
+    })
+
+    // Agrupa por beneficiário, preservando cada retirada como uma linha do detalhe.
+    const map = new Map<string, {
+      beneficiarioId: string
+      nome: string
+      cpf: string
+      bairro: string
+      totalQuentinhas: number
+      retiradas: { data: Date; horario: Date; quantidade: number; metodoRetirada: string; retiradoPorNome: string | null }[]
+    }>()
+
+    for (const r of retiradas) {
+      let entry = map.get(r.beneficiarioId)
+      if (!entry) {
+        entry = {
+          beneficiarioId: r.beneficiarioId,
+          nome: r.beneficiario.nome,
+          cpf: r.beneficiario.cpf,
+          bairro: r.beneficiario.bairro,
+          totalQuentinhas: 0,
+          retiradas: [],
+        }
+        map.set(r.beneficiarioId, entry)
+      }
+      entry.totalQuentinhas += r.quantidade
+      entry.retiradas.push({
+        data: r.data,
+        horario: r.horario,
+        quantidade: r.quantidade,
+        metodoRetirada: r.metodoRetirada,
+        retiradoPorNome: r.retiradoPorNome,
+      })
+    }
+
+    // Ordena do que mais retirou para o que menos retirou.
+    const usuarios = Array.from(map.values()).sort((a, b) => b.totalQuentinhas - a.totalQuentinhas)
+    const totalQuentinhas = usuarios.reduce((acc, u) => acc + u.totalQuentinhas, 0)
+
+    return { usuarios, totalUsuarios: usuarios.length, totalQuentinhas }
+  }
+
   async gerarDocumento(params: {
     periodo: string
     dataInicio: Date

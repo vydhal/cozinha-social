@@ -58,6 +58,7 @@ function Relatorios() {
   const [dataInicio, setDataInicio] = useState(today);
   const [dataFim, setDataFim] = useState(today);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingBase, setExportingBase] = useState(false);
 
   const { logoUrl, nomeCozinha } = useSettings();
   const user = useAuth(s => s.user);
@@ -260,6 +261,90 @@ function Relatorios() {
     }
   }
 
+  async function exportBaseUsuarios() {
+    setExportingBase(true);
+    try {
+      const base = await relatoriosApi.baseUsuarios({
+        periodo,
+        ...(isCustom && { de: dataInicio, ate: dataFim }),
+        bairro: bairro !== "todos" ? bairro : undefined,
+      });
+      if (!base.usuarios.length) { toast.error("Nenhuma retirada no período para gerar a base."); return; }
+
+      const origin = window.location.origin;
+      const date = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const { de, ate } = getDateRange(periodo, dataInicio, dataFim);
+      const periodoTxt = `${de.toLocaleDateString("pt-BR")} a ${ate.toLocaleDateString("pt-BR")}`;
+      const logoHtml = logoUrl
+        ? `<img src="${origin}${logoUrl.startsWith("/") ? logoUrl : "/" + logoUrl}" alt="Logo" style="height:60px;object-fit:contain;" />`
+        : `<div style="width:60px;height:60px;background:#2f9d6b;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;">🍽</div>`;
+
+      const fmtDia = (d: string) =>
+        new Date(d).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "UTC" });
+
+      const blocks = base.usuarios.map(u => {
+        const linhas = u.retiradas.map(r => {
+          const metodo = r.metodoRetirada === "FACIAL" ? "facial" : "manual";
+          const proc = r.retiradoPorNome ? ` — retirado por ${r.retiradoPorNome}` : "";
+          return `<li>${fmtDia(r.data)} — ${r.quantidade} quentinha(s) (${metodo})${proc}</li>`;
+        }).join("");
+        return `<div class="user">
+          <div class="user-head"><strong>${u.nome}</strong> retirou ${u.totalQuentinhas} quentinha(s)
+            <span class="sub">${u.cpf} · ${u.bairro || "—"}</span></div>
+          <ul>${linhas}</ul>
+        </div>`;
+      }).join("");
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+        <title>Base de usuários — ${nomeCozinha || "Mesa do Bem"}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 0 24px; }
+          .header { display: flex; align-items: center; gap: 16px; padding: 20px 0 12px; border-bottom: 3px solid #2f9d6b; margin-bottom: 16px; }
+          .header-text h1 { font-size: 18px; color: #111; }
+          .header-text p { font-size: 11px; color: #555; margin-top: 2px; }
+          .stats { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+          .stat { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; text-align: center; min-width: 120px; flex: 1; }
+          .stat strong { display: block; font-size: 20px; color: #2f9d6b; }
+          .stat span { font-size: 10px; color: #666; }
+          .user { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #eee; break-inside: avoid; }
+          .user-head { font-size: 14px; margin-bottom: 4px; }
+          .user-head .sub { color: #888; font-size: 10px; margin-left: 8px; }
+          ul { list-style: none; padding-left: 14px; }
+          li { font-size: 11px; color: #333; padding: 2px 0; text-transform: capitalize; }
+          .footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
+          .footer img { width: 100%; display: block; }
+          .content { margin-bottom: 80px; }
+        </style>
+      </head><body>
+        <div class="header">
+          ${logoHtml}
+          <div class="header-text">
+            <h1>${nomeCozinha || "Mesa do Bem"}</h1>
+            <p>Base de usuários — demonstrativo por pessoa</p>
+            <p>Período: ${periodoLabel[periodo] ?? periodo} (${periodoTxt})${bairro !== "todos" ? ` · Bairro: ${bairro}` : ""} · Gerado em ${date}</p>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><strong>${base.totalUsuarios}</strong><span>Usuários atendidos</span></div>
+          <div class="stat"><strong>${base.totalQuentinhas}</strong><span>Quentinhas no período</span></div>
+        </div>
+        <div class="content">${blocks}</div>
+        <div class="footer"><img src="${origin}/rodape.png" alt="Rodapé institucional" /></div>
+        <script>window.onload = function(){ window.print(); }<\/script>
+      </body></html>`;
+
+      const w = window.open("", "_blank");
+      if (!w) return toast.error("Permita pop-ups para exportar a base.");
+      w.document.write(html);
+      w.document.close();
+    } catch (err: any) {
+      toast.error(err?.message ?? "Erro ao gerar a base de usuários.");
+    } finally {
+      setExportingBase(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -271,6 +356,10 @@ function Relatorios() {
             <Button variant="outline" className="gap-2" onClick={exportPdf} disabled={exportingPdf}>
               {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
               PDF
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={exportBaseUsuarios} disabled={exportingBase}>
+              {exportingBase ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              Base usuários
             </Button>
             <Button variant="outline" className="gap-2" onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir</Button>
           </>

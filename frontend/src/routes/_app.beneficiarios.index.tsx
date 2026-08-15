@@ -7,15 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Search, Plus, Upload, MapPin, Phone, Filter, ScanFace, ChevronLeft, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
+import { Search, Plus, Upload, MapPin, Phone, Filter, ScanFace, ChevronLeft, ChevronRight, Download, FileText, Loader2, Accessibility } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { beneficiariosApi, type Beneficiario } from "@/lib/api/beneficiarios.api";
 import { useSettings } from "@/lib/store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/beneficiarios/")({
-  validateSearch: (s: Record<string, unknown>): { biometria?: string } =>
-    typeof s.biometria === "string" ? { biometria: s.biometria } : {},
+  validateSearch: (s: Record<string, unknown>): { biometria?: string; deficiencia?: string } => ({
+    ...(typeof s.biometria === "string" ? { biometria: s.biometria } : {}),
+    ...(typeof s.deficiencia === "string" ? { deficiencia: s.deficiencia } : {}),
+  }),
   component: BeneficiariosList,
 });
 
@@ -59,6 +61,7 @@ function exportToCsv(items: Beneficiario[]) {
     ["Quentinhas/dia", b => String(b.quentinhasAutorizadas ?? "")],
     ["Status",         b => b.status ?? ""],
     ["Biometria",      b => b.biometriaStatus ?? ""],
+    ["Deficiência",    b => b.deficiencia ? (b.qualDeficiencia || "Sim") : "Não"],
   ];
 
   const header = cols.map(([label]) => label).join(";");
@@ -76,13 +79,14 @@ function exportToCsv(items: Beneficiario[]) {
 }
 
 function BeneficiariosList() {
-  const { biometria: biometriaParam } = useSearch({ from: "/_app/beneficiarios/" });
+  const { biometria: biometriaParam, deficiencia: deficienciaParam } = useSearch({ from: "/_app/beneficiarios/" });
   const { logoUrl, nomeCozinha } = useSettings();
 
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [status, setStatus] = useState<string>("todos");
   const [biometria, setBiometria] = useState<string>(biometriaParam ?? "todas");
+  const [deficiencia, setDeficiencia] = useState<string>(deficienciaParam ?? "todas");
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -92,12 +96,15 @@ function BeneficiariosList() {
     return () => clearTimeout(t);
   }, [q]);
 
+  const deficienciaParamApi = deficiencia === "com" ? "true" : deficiencia === "sem" ? "false" : undefined;
+
   const { data, isLoading } = useQuery({
-    queryKey: ["beneficiarios", debouncedQ, status, biometria, page],
+    queryKey: ["beneficiarios", debouncedQ, status, biometria, deficiencia, page],
     queryFn: () => beneficiariosApi.list({
       search: debouncedQ || undefined,
       status: status !== "todos" ? status.toUpperCase() as Beneficiario["status"] : undefined,
       biometriaStatus: biometria !== "todas" ? biometria.toUpperCase() : undefined,
+      deficiencia: deficienciaParamApi,
       page,
       limit: 18,
     }),
@@ -112,6 +119,7 @@ function BeneficiariosList() {
       search: debouncedQ || undefined,
       status: status !== "todos" ? status.toUpperCase() as Beneficiario["status"] : undefined,
       biometriaStatus: biometria !== "todas" ? biometria.toUpperCase() : undefined,
+      deficiencia: deficienciaParamApi,
       limit: 9999,
     });
     return result.items;
@@ -149,6 +157,7 @@ function BeneficiariosList() {
       if (debouncedQ) filtros.push(`Busca: "${debouncedQ}"`);
       if (status !== "todos") filtros.push(`Status: ${statusLabel[status.toUpperCase() as Beneficiario["status"]]}`);
       if (biometria !== "todas") filtros.push(`Biometria: ${biometriaLabel[biometria.toUpperCase() as Beneficiario["biometriaStatus"]]}`);
+      if (deficiencia !== "todas") filtros.push(`Deficiência: ${deficiencia === "com" ? "Com" : "Sem"}`);
 
       const rows = items.map(b => `<tr>
         <td>${b.nome}</td>
@@ -272,6 +281,14 @@ function BeneficiariosList() {
               <SelectItem value="indisponivel">Indisponível</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={deficiencia} onValueChange={(v) => { setDeficiencia(v); setPage(1); }}>
+            <SelectTrigger className="h-11 w-full sm:w-52"><Accessibility className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todos (deficiência)</SelectItem>
+              <SelectItem value="com">Com deficiência</SelectItem>
+              <SelectItem value="sem">Sem deficiência</SelectItem>
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
@@ -304,7 +321,17 @@ function BeneficiariosList() {
                   <span className="text-muted-foreground">Quentinhas/dia</span>
                   <span className="font-bold">{b.quentinhasAutorizadas}</span>
                 </div>
-                <div className="mt-2">{biometriaBadge(b.biometriaStatus)}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {biometriaBadge(b.biometriaStatus)}
+                  {b.deficiencia && (
+                    <Badge
+                      className="gap-1 bg-accent/15 text-accent-foreground hover:bg-accent/15"
+                      title={b.qualDeficiencia || "Pessoa com deficiência"}
+                    >
+                      <Accessibility className="h-3 w-3" /> Deficiência
+                    </Badge>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </Link>

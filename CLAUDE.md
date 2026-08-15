@@ -244,6 +244,49 @@ Se for necessário, vale extrair um hook compartilhado a partir do reconheciment
 `style.setProperty()` a partir de `corPrimaria` das configurações. Ou seja, a cor
 que aparece na tela **não** é a do `styles.css` — não confunda com regressão de tema.
 
+### Sessão 8 — Deficiência (tag+filtro) + câmera na biometria + PDF "Base usuários" + fix build
+
+#### Tag e filtro de deficiência (`_app.beneficiarios.index.tsx`)
+- Card do beneficiário exibe tag **"Deficiência"** quando `deficiencia` está marcado (tipo no tooltip).
+- Novo filtro **"Deficiência"** (Todos/Com/Sem) na barra + deep-link `?deficiencia=com`.
+- Backend: `deficiencia` (`'true'`/`'false'`) no `listBeneficiariosSchema`, no `where` e no `select`
+  do `BeneficiariosRepository.findMany` (que também passou a retornar `qualDeficiencia`).
+- Incluído no CSV e na linha de filtros do PDF da lista.
+
+#### Seletor de câmera na captura de biometria (`_app.beneficiarios.$id.tsx`)
+- Motivação: a captura de biometria (`BiometriaCard`) ainda fixava `facingMode: "user"`.
+- Criado hook reutilizável `frontend/src/hooks/use-camera.ts` (`useCameraStream` + `savedCameraId`)
+  com a lógica de enumerar após permissão, parar antes de trocar, fallback se o `deviceId` salvo
+  sumir, e preferência em `localStorage` (mesma chave `mdb-camera-id` da retirada).
+- `BiometriaCard` usa o hook e mostra o Select **só quando há mais de uma câmera**.
+- `FotoCaptura` (foto de perfil) ainda não usa o hook — se precisar, é só adotar lá também.
+
+#### PDF "Base usuários" — demonstrativo agrupado por pessoa (`_app.relatorios.tsx`)
+- Botão **"Base usuários"** na barra de Relatórios, respeita os filtros ativos (período, bairro,
+  personalizado).
+- Backend: `GET /api/relatorios/base-usuarios` (Admin+) → `RelatoriosService.getBaseUsuarios`
+  agrupa as retiradas ENTREGUE por beneficiário (ordenado do que mais retirou), com o detalhe
+  por dia (data + método + `retiradoPorNome`).
+- PDF: por pessoa, "Fulano retirou N quentinha(s)" + lista por dia
+  ("segunda-feira, 04/08 — 1 quentinha(s) (facial)"). Cabeçalho/rodapé no mesmo padrão.
+
+#### Fix: build do backend travava no Dockerfile (`chown -R`)
+- Sintoma: `docker build` do backend ficava 30+ min preso no passo final.
+- Causa: `RUN ... chown -R nodejs:nodejs /app` percorria todo o `node_modules` (milhares de
+  arquivos); com o disco do Docker cheio, o IO ficava lentíssimo. O `npm install` roda em ~14s.
+- Fix: o `nodejs` só precisa escrever em `/app/uploads`; `dist` e `node_modules` já são legíveis.
+  Trocado por `RUN mkdir -p /app/uploads && chown nodejs:nodejs /app/uploads` (passo ~5s).
+  Bônus: imagem menor (568MB vs 806MB). Usuário `nodejs` criado antes dos COPY.
+
+#### Troubleshooting: 500 em `/api/relatorios` após deploy de schema
+- Se o backend novo espera uma coluna que o banco ainda não tem (ex.: `retiradoPorNome`), toda
+  query que lê a linha inteira da Retirada dá 500 (as de agregação continuam OK — por isso o
+  gráfico de tendência funciona e os cards ficam "—"). **Não é perda de dados.**
+- Causa: o `prisma db push` não rodou com o schema novo. O serviço `migrate` no `stack.yml` tem
+  imagem **própria** (linha ~127) — numa mudança de schema, ele precisa estar na **mesma versão**
+  do backend, senão o `db push` aplica o schema antigo.
+- Correção rápida: no container do backend, `npx prisma db push`.
+
 ### Sessão 7 — Vínculo de família opcional + retirada por procuração + acurácia facial
 
 #### Vínculo de família deixou de ser automático (opt-in manual)
@@ -341,6 +384,7 @@ no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constrai
 | `lib/api/fila.api.ts` | API: fichas/fila |
 | `lib/api/relatorios.api.ts` | API: relatórios |
 | `lib/api/configuracoes.api.ts` | API: configurações + cadastro público |
+| `hooks/use-camera.ts` | `useCameraStream`/`savedCameraId` — seletor de câmera compartilhado |
 | `lib/utils.ts` | `cn()`, `maskCpf()` |
 
 ### Backend (`backend/src/modules/`)

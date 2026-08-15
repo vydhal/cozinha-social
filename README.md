@@ -43,14 +43,15 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 - Atualização automática a cada 30 segundos
 
 ### Beneficiários
-- Listagem com busca por nome/CPF, filtros de status e paginação
+- Listagem com busca por nome/CPF, filtros de status, biometria e **deficiência**, e paginação
+- **Tag "Deficiência"** no card + filtro dedicado (Com/Sem) para os agentes acompanharem esse público
 - Cadastro completo com validação em português:
   - Dados pessoais: nome, CPF, RG, data de nascimento, telefone
   - Endereço: CEP, logradouro, número, bairro, cidade, UF
   - Dados familiares: pessoas na casa, nomes dos moradores, quentinhas autorizadas
   - **Perfil social** (11 campos): gênero, raça/cor, naturalidade, estado civil, renda familiar, Bolsa Família, NIS, deficiência, tipo de deficiência, nome da mãe, nome do pai
 - Foto de perfil via upload ou câmera (webcam)
-- Registro e visualização de biometria facial
+- Registro e visualização de biometria facial, com **escolha de câmera** (frontal/traseira) na captura
 - **Exportação CSV** da listagem atual (respeita filtros de busca e status ativos)
 - **Importação em lote via CSV** com 26 campos suportados e dialog de progresso animado
 - Download de modelo CSV com todos os campos e valores aceitos
@@ -96,6 +97,8 @@ Acesso em produção: **https://cozinha.simplisoft.com.br**
 - Tabela de retiradas com totalizadores
 - Exportação **CSV** (UTF-8 com BOM, compatível com Excel)
 - Exportação **PDF** (HTML estilizado, impressão automática)
+- **Base usuários (PDF)**: demonstrativo agrupado por pessoa — total de quentinhas no período e
+  detalhe por dia (data + método), útil para comparar relatórios entre períodos
 - Impressão direta da página
 
 ### Equipe
@@ -335,6 +338,8 @@ uvicorn main:app --reload --port 8000
 | Preview de câmera pequeno/descentralizado no tablet (cadastro e biometria) | Container do vídeo sem `w-full` encolhia dentro do `grid` do `DialogContent` | `mx-auto aspect-square w-full max-w-[20rem]` no box + dialog com scroll |
 | Vínculo automático de família por endereço causava divergência (1 entrega = N quentinhas) | `Familia` era única por endereço; retirada somava a cota de todos e bloqueava a família | Vínculo virou manual/opt-in; cada um retira a sua; retirada por procuração para vinculados |
 | Reconhecimento facial aceitava pessoas parecidas (falso positivo) | Threshold folgado (0.6) e sem teste de ambiguidade | Threshold 0.5, teste de margem contra 2º melhor match, jitters — tunável por env |
+| `docker build` do backend travava 30+ min | `chown -R nodejs:nodejs /app` percorria todo o `node_modules` (lento com disco cheio) | `chown` só na pasta `uploads`; `dist`/`node_modules` já são legíveis. Imagem 568MB vs 806MB |
+| 500 em `/api/relatorios` após deploy | Backend novo esperava coluna que o banco não tinha (`db push` não rodou com o schema novo) | Rodar `npx prisma db push`; serviço `migrate` do stack.yml precisa da mesma versão do backend |
 
 ---
 
@@ -488,3 +493,52 @@ vezes não reconhecida → tenta de novo ou busca por CPF). Preferível a entreg
 Toca **backend + frontend + face-service** e muda o schema (remove a constraint de `Familia`,
 adiciona `retiradoPorNome`). Publicar com `.\build.ps1` → **[5] Tudo** e fazer **redeploy da stack
 completa** no Portainer (o serviço `migrate` roda o `prisma db push`).
+
+---
+
+## Sessão 8 — Deficiência, câmera na biometria, "Base usuários" e fix de build
+
+### Tag e filtro de deficiência
+
+Para os agentes acompanharem esse público: o card do beneficiário agora exibe uma tag
+**"Deficiência"** quando marcado no cadastro (o tipo aparece no tooltip), e a lista ganhou um
+**filtro** dedicado (Todos / Com / Sem), com deep-link `?deficiencia=com`. Incluído também no
+CSV e no PDF da lista. Backend: campo `deficiencia` no schema de listagem, no `where` e no `select`.
+
+### Escolha de câmera na captura de biometria
+
+A captura de biometria (no editar cadastro) ainda fixava a câmera frontal. Agora tem o mesmo
+seletor da tela de retirada — extraído para um hook reutilizável (`hooks/use-camera.ts`) que
+enumera as câmeras após a permissão, para o stream antes de trocar, faz fallback se o dispositivo
+salvo sumir e compartilha a preferência (`localStorage`). O seletor só aparece quando há mais de
+uma câmera.
+
+### "Base usuários" — demonstrativo por pessoa (PDF)
+
+Novo botão em Relatórios que gera um PDF agrupado por beneficiário, respeitando os filtros ativos:
+
+```
+Maria da Silva retirou 10 quentinha(s)
+  segunda-feira, 04/08 — 1 quentinha(s) (facial)
+  terça-feira, 05/08 — 1 quentinha(s) (manual)
+Josefa Tavares retirou 8 quentinha(s)
+  ...
+```
+
+Ordenado do que mais retirou para o que menos. Backend: `GET /api/relatorios/base-usuarios`
+(Admin+) agrupa as retiradas ENTREGUE do período com o detalhe por dia (data, método, e
+"retirado por" quando foi procuração).
+
+### Fix: build do backend travava (`chown -R`)
+
+O `docker build` do backend ficava 30+ min preso no passo final do Dockerfile:
+`chown -R nodejs:nodejs /app` percorria todo o `node_modules` (milhares de arquivos) e, com o
+disco do Docker cheio, o IO ficava lentíssimo (o `npm install` roda em ~14s). Como o `nodejs` só
+precisa escrever em `/app/uploads` (o resto já é legível), trocou-se por um `chown` apenas nessa
+pasta — passo de ~5s, e a imagem ficou menor (568MB vs 806MB).
+
+### Deploy desta sessão
+
+Toca **backend + frontend** (sem mudança de schema — `deficiencia`/`qualDeficiencia` e
+`retiradoPorNome` já existiam). Basta atualizar os serviços `backend` e `frontend` para a nova
+versão; **não precisa** de redeploy da stack completa nem do `migrate`.

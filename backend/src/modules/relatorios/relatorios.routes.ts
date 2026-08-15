@@ -67,6 +67,19 @@ export async function relatoriosRoutes(fastify: FastifyInstance) {
     return reply.send({ data: result })
   })
 
+  fastify.get('/base-usuarios', { preHandler: [requireAdmin()] }, async (request, reply) => {
+    const user = request.user as { unidadeId?: string }
+    const query = request.query as {
+      periodo?: 'hoje' | 'semana' | 'mes' | 'ano' | 'personalizado'
+      de?: string
+      ate?: string
+      bairro?: string
+      unidadeId?: string
+    }
+    const result = await service.getBaseUsuarios({ ...query, unidadeId: query.unidadeId ?? user.unidadeId })
+    return reply.send({ data: result })
+  })
+
   fastify.post('/documento', { preHandler: [requireAdmin()] }, async (request, reply) => {
     const user = request.user as { id: string }
     const schema = z.object({

@@ -25,6 +25,29 @@ export interface RetiradaValidacaoDoc {
   operador: string;
 }
 
+export interface BaseUsuarioRetirada {
+  data: string;
+  horario: string;
+  quantidade: number;
+  metodoRetirada: "FACIAL" | "MANUAL";
+  retiradoPorNome: string | null;
+}
+
+export interface BaseUsuario {
+  beneficiarioId: string;
+  nome: string;
+  cpf: string;
+  bairro: string;
+  totalQuentinhas: number;
+  retiradas: BaseUsuarioRetirada[];
+}
+
+export interface BaseUsuarios {
+  usuarios: BaseUsuario[];
+  totalUsuarios: number;
+  totalQuentinhas: number;
+}
+
 export interface DashboardData {
   disponiveisHoje: number;
   entreguesHoje: number;
@@ -74,6 +97,11 @@ export const relatoriosApi = {
       stats: { total: number; quentinhas: number; mediadiaria: number; familias: number; ausencias: number; taxa: number };
       charts: { bairros: unknown[]; frequentes: unknown[] };
     }>(`/relatorios?${new URLSearchParams(Object.entries(params).filter(([, v]) => v).map(([k, v]) => [k, v!])).toString()}`),
+
+  baseUsuarios: (params: { periodo?: string; de?: string; ate?: string; bairro?: string; unidadeId?: string }) =>
+    api.get<BaseUsuarios>(
+      `/relatorios/base-usuarios?${new URLSearchParams(Object.entries(params).filter(([, v]) => v).map(([k, v]) => [k, v!])).toString()}`
+    ),
 
   gerarDocumento: (params: {
     periodo: string; dataInicio: string; dataFim: string;

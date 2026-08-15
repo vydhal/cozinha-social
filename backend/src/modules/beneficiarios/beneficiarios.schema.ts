@@ -48,6 +48,8 @@ export const listBeneficiariosSchema = z.object({
   status: z.enum(['ATIVO', 'PENDENTE', 'BLOQUEADO']).optional(),
   biometriaStatus: z.enum(['VERIFICADA', 'PENDENTE', 'INDISPONIVEL']).optional(),
   bairro: z.string().optional(),
+  // 'true' filtra só quem tem deficiência marcada no cadastro.
+  deficiencia: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(9999).default(20),
 })

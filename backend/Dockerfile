@@ -11,15 +11,17 @@ RUN npm run build
 FROM node:22-alpine AS production
 WORKDIR /app
 RUN apk add --no-cache openssl
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 COPY package*.json ./
 RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
 
-RUN mkdir -p /app/uploads && \
-    addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+# Só a pasta de uploads precisa ser gravável pelo nodejs. dist e node_modules já
+# são legíveis por qualquer usuário — evita o `chown -R /app` (lento com muitos
+# arquivos e disco cheio, travava o build).
+RUN mkdir -p /app/uploads && chown nodejs:nodejs /app/uploads
 USER nodejs
 
 EXPOSE 3001
