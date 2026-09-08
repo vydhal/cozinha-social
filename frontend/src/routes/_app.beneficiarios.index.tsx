@@ -62,6 +62,7 @@ function exportToCsv(items: Beneficiario[]) {
     ["Status",         b => b.status ?? ""],
     ["Biometria",      b => b.biometriaStatus ?? ""],
     ["Deficiência",    b => b.deficiencia ? (b.qualDeficiencia || "Sim") : "Não"],
+    ["Cadastrado em",  b => b.criadoEm ? new Date(b.criadoEm).toLocaleDateString("pt-BR") : ""],
   ];
 
   const header = cols.map(([label]) => label).join(";");
@@ -167,6 +168,7 @@ function BeneficiariosList() {
         <td style="text-align:center;">${statusLabel[b.status]}</td>
         <td style="text-align:center;">${biometriaLabel[b.biometriaStatus]}</td>
         <td style="text-align:center;">${b.quentinhasAutorizadas}</td>
+        <td style="text-align:center;">${b.criadoEm ? new Date(b.criadoEm).toLocaleDateString("pt-BR") : "—"}</td>
       </tr>`).join("");
 
       const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
@@ -215,7 +217,7 @@ function BeneficiariosList() {
           <thead><tr>
             <th>Nome</th><th>CPF</th><th>Bairro</th><th>Telefone</th>
             <th style="text-align:center;">Status</th><th style="text-align:center;">Biometria</th>
-            <th style="text-align:center;">Quentinhas/dia</th>
+            <th style="text-align:center;">Quentinhas/dia</th><th style="text-align:center;">Cadastrado em</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -321,6 +323,11 @@ function BeneficiariosList() {
                   <span className="text-muted-foreground">Quentinhas/dia</span>
                   <span className="font-bold">{b.quentinhasAutorizadas}</span>
                 </div>
+                {b.criadoEm && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Cadastrado em {new Date(b.criadoEm).toLocaleDateString("pt-BR")}
+                  </div>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {biometriaBadge(b.biometriaStatus)}
                   {b.deficiencia && (

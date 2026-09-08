@@ -365,6 +365,33 @@ no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constrai
 - `TWENTY_AGENT_PROMPT.md` na raiz — prompt para configurar TwentyCRM como hub de integração
 - Próximo passo: implementar o contrato no sistema de saúde, depois configurar TwentyCRM
 
+### Sessão 9 — Data de cadastro na listagem de beneficiários
+
+#### Exibição e exportação da data de cadastro (`_app.beneficiarios.index.tsx`)
+- Motivação: não era possível ver, na listagem de beneficiários, desde quando cada pessoa
+  está cadastrada na plataforma — a informação existia no banco (`criadoEm`) e já aparecia
+  na ficha individual, mas faltava na tela de listagem e nas exportações.
+- Nenhuma mudança de backend foi necessária: `criadoEm` já vinha no `select` do
+  `BeneficiariosRepository.findMany` e já estava tipado no client (`Beneficiario.criadoEm`)
+  — o gap era só de uso no frontend.
+- Card da listagem: nova linha "Cadastrado em DD/MM/AAAA" abaixo de "Quentinhas/dia".
+- CSV (`exportToCsv`): nova coluna "Cadastrado em".
+- PDF (`exportPdf`): nova coluna "Cadastrado em" na tabela.
+- Escopo definido com o usuário: só exibir/exportar, sem filtro novo por período de cadastro
+  (a lista já tem filtros de status/biometria/deficiência).
+
+#### Nota sobre teste local (ambiente sandboxado)
+- Ao testar via `vite dev` localmente, os processos iniciados por padrão pelas ferramentas
+  de terminal do agente rodam num sandbox isolado da máquina real — o servidor responde a
+  `curl`/`Invoke-WebRequest` do próprio agente, mas o navegador do usuário não alcança a
+  porta (nem em `127.0.0.1`), mesmo sem Docker envolvido. Fix: iniciar o processo com a opção
+  de desabilitar o sandbox (`dangerouslyDisableSandbox`) para rodar no host real.
+- Como a API de produção não libera CORS para origens locais (`CORS_ORIGINS` não inclui
+  `localhost`), testar o dev server apontado direto para `https://cozinha.simplisoft.com.br`
+  falha com "Erro ao conectar com o servidor". Contorno usado: um proxy HTTP local simples
+  (Node, sem dependências) que repassa as requisições para produção e adiciona os headers
+  `Access-Control-Allow-*` — usado só para teste manual, não faz parte do código do projeto.
+
 ---
 
 ## Arquivos-chave
