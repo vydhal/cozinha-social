@@ -1,0 +1,146 @@
+# ============================================================================
+# Mesa do Bem — stack para a VPS elobase (srv1841357)
+# Docker STANDALONE (compose), NÃO Swarm — ver ARQUITETURA-SERVIDOR-ELOBASE.md
+# Domínio: cozinha.elobase.tech
+#
+# Diferenças em relação ao stack.yml (Swarm/simplisoft):
+#   - sem chaves `deploy:` → usa `restart:` e `mem_limit:`
+#   - Traefik: certresolver `leresolver`, rede `portainer_default`
+#   - routers com prefixo único `cozinha-eb-*` (não colidir com outras stacks)
+#   - rede interna `internal` é bridge própria (não overlay/external)
+#
+# Deploy: Portainer → Stacks → Add stack → colar este YAML → definir as env vars
+# (ver .env.cozinha-elobase.example) → Deploy the stack.
+# Migração do banco/uploads: ver MIGRACAO-ELOBASE.md.
+# ============================================================================
+
+services:
+  # ---- Backend API (Fastify + Prisma) -------------------------------------
+  backend:
+    image: vydhal/mesa-do-bem-backend:${BACKEND_TAG:-1.1.0}
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql://mesadobem:${POSTGRES_PASSWORD}@mesa-db:5432/mesadobem
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - JWT_EXPIRES_IN=15m
+      - JWT_REFRESH_EXPIRES_IN=7d
+      - CORS_ORIGINS=https://cozinha.elobase.tech
+      - FACE_SERVICE_URL=http://face-service:8000
+      - LOG_LEVEL=info
+      - UPLOAD_DIR=/app/uploads
+      - UPLOAD_URL_BASE=/uploads
+      - PUBLIC_URL=https://cozinha.elobase.tech
+      - INTEGRATION_API_KEY=${INTEGRATION_API_KEY}
+      # Acurácia facial (opcional; defaults já são rígidos) — ver Sessão 7
+      - FACE_MATCH_THRESHOLD=${FACE_MATCH_THRESHOLD:-0.5}
+    volumes:
+      - mesa_uploads:/app/uploads
+    depends_on:
+      mesa-db:
+        condition: service_healthy
+    networks:
+      - portainer_default
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=portainer_default"
+      - "traefik.http.routers.cozinha-eb-backend.rule=Host(`cozinha.elobase.tech`) && (PathPrefix(`/api`) || PathPrefix(`/uploads`))"
+      - "traefik.http.routers.cozinha-eb-backend.entrypoints=websecure"
+      - "traefik.http.routers.cozinha-eb-backend.tls.certresolver=leresolver"
+      - "traefik.http.routers.cozinha-eb-backend.priority=10"
+      - "traefik.http.services.cozinha-eb-backend.loadbalancer.server.port=3001"
+      # WebSocket (painel de senhas / fila)
+      - "traefik.http.middlewares.cozinha-eb-ws.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.cozinha-eb-backend.middlewares=cozinha-eb-ws@docker"
+
+  # ---- Frontend (TanStack Start / Node) -----------------------------------
+  frontend:
+    image: vydhal/mesa-do-bem-frontend:${FRONTEND_TAG:-1.1.0}
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    networks:
+      - portainer_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=portainer_default"
+      - "traefik.http.routers.cozinha-eb-frontend.rule=Host(`cozinha.elobase.tech`)"
+      - "traefik.http.routers.cozinha-eb-frontend.entrypoints=websecure"
+      - "traefik.http.routers.cozinha-eb-frontend.tls.certresolver=leresolver"
+      - "traefik.http.routers.cozinha-eb-frontend.priority=1"
+      - "traefik.http.services.cozinha-eb-frontend.loadbalancer.server.port=3000"
+
+  # ---- Face Recognition Service (Python/OpenCV) ---------------------------
+  face-service:
+    image: vydhal/mesa-do-bem-face-service:${FACE_TAG:-1.1.0}
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      - FACE_MATCH_THRESHOLD=${FACE_MATCH_THRESHOLD:-0.5}
+      - FACE_MATCH_MARGIN=${FACE_MATCH_MARGIN:-0.06}
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=false"
+
+  # ---- PostgreSQL 16 ------------------------------------------------------
+  mesa-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - POSTGRES_DB=mesadobem
+      - POSTGRES_USER=mesadobem
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - mesa_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesadobem -d mesadobem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=false"
+
+  # ---- Migrations / bootstrap (roda uma vez) ------------------------------
+  # Aplica o schema (prisma db push) e garante config/bairros/superadmin.
+  # Com SEED_DEMO_DATA=false NÃO injeta dados demo. Numa migração o dump é
+  # restaurado por cima disso (ver MIGRACAO-ELOBASE.md).
+  migrate:
+    image: vydhal/mesa-do-bem-backend:${BACKEND_TAG:-1.1.0}
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql://mesadobem:${POSTGRES_PASSWORD}@mesa-db:5432/mesadobem
+      - SEED_DEMO_DATA=${SEED_DEMO_DATA:-false}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - NOME_COZINHA=${NOME_COZINHA:-Cozinha Solidária}
+      - LIMITE_DIARIO=${LIMITE_DIARIO:-100}
+    command: sh -c "npx prisma db push && npx tsx prisma/seed.ts"
+    depends_on:
+      mesa-db:
+        condition: service_healthy
+    networks:
+      - internal
+
+volumes:
+  mesa_postgres:
+    driver: local
+  mesa_uploads:
+    driver: local
+
+networks:
+  # Rede do Traefik/Portainer — já existe nesta VPS (não criar).
+  portainer_default:
+    external: true
+  # Rede interna da stack (app ↔ banco ↔ face), não exposta.
+  internal:
+    driver: bridge
