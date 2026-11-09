@@ -3,6 +3,18 @@ import { persist } from "zustand/middleware";
 
 export type UserRole = "SUPERADMIN" | "ADMIN" | "COLABORADOR";
 
+export type Modulo = "BENEFICIARIOS" | "RETIRADA" | "FACIAL" | "FILA" | "LISTA_DIARIA" | "RELATORIOS" | "ESTOQUE";
+
+export const MODULOS: { value: Modulo; label: string }[] = [
+  { value: "BENEFICIARIOS", label: "Beneficiários" },
+  { value: "RETIRADA", label: "Retirada" },
+  { value: "FACIAL", label: "Reconhecimento facial" },
+  { value: "FILA", label: "Fila" },
+  { value: "LISTA_DIARIA", label: "Lista diária" },
+  { value: "RELATORIOS", label: "Relatórios" },
+  { value: "ESTOQUE", label: "Estoque" },
+];
+
 export type AuthUser = {
   id: string;
   nome: string;
@@ -11,7 +23,14 @@ export type AuthUser = {
   avatar?: string;
   cargo?: string;
   unidadeId?: string;
+  modulosPermitidos?: Modulo[];
 };
+
+export function temModulo(user: AuthUser | null, modulo: Modulo): boolean {
+  if (!user) return false;
+  if (user.role === "SUPERADMIN") return true;
+  return user.modulosPermitidos?.includes(modulo) ?? false;
+}
 
 type OriginalSession = { user: AuthUser; token: string; refreshToken: string };
 

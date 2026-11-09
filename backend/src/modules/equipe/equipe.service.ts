@@ -7,7 +7,7 @@ export class EquipeService {
   async list() {
     return prisma.user.findMany({
       where: { deletadoEm: null },
-      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, telefone: true, criadoEm: true },
+      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, telefone: true, criadoEm: true, modulosPermitidos: true },
       orderBy: { nome: 'asc' },
     })
   }
@@ -15,7 +15,7 @@ export class EquipeService {
   async getById(id: string) {
     const user = await prisma.user.findFirst({
       where: { id, deletadoEm: null },
-      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, telefone: true, criadoEm: true },
+      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, telefone: true, criadoEm: true, modulosPermitidos: true },
     })
     if (!user) throw new NotFoundError('Usuário')
     return user
@@ -29,7 +29,7 @@ export class EquipeService {
     const senha = await hashPassword(data.senha)
     return prisma.user.create({
       data: { ...data, email, senha },
-      select: { id: true, nome: true, email: true, role: true, status: true, cargo: true, criadoEm: true },
+      select: { id: true, nome: true, email: true, role: true, status: true, cargo: true, criadoEm: true, modulosPermitidos: true },
     })
   }
 
@@ -39,7 +39,7 @@ export class EquipeService {
     return prisma.user.update({
       where: { id },
       data: data.email ? { ...data, email: data.email.toLowerCase() } : data,
-      select: { id: true, nome: true, email: true, role: true, status: true, cargo: true, atualizadoEm: true },
+      select: { id: true, nome: true, email: true, role: true, status: true, cargo: true, atualizadoEm: true, modulosPermitidos: true },
     })
   }
 

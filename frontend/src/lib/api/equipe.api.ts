@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { Modulo } from "@/lib/store";
 
 export interface TeamUser {
   id: string;
@@ -10,6 +11,7 @@ export interface TeamUser {
   cargo?: string;
   telefone?: string;
   criadoEm: string;
+  modulosPermitidos?: Modulo[];
 }
 
 export interface ActivityLog {
@@ -24,7 +26,7 @@ export interface ActivityLog {
 export const equipeApi = {
   list: () => api.get<TeamUser[]>("/equipe"),
   getLogs: (limit?: number) => api.get<ActivityLog[]>(`/equipe/logs${limit ? `?limit=${limit}` : ""}`),
-  create: (data: { nome: string; email: string; senha: string; role: string; cargo?: string; telefone?: string }) =>
+  create: (data: { nome: string; email: string; senha: string; role: string; cargo?: string; telefone?: string; modulosPermitidos?: Modulo[] }) =>
     api.post<TeamUser>("/equipe", data),
   update: (id: string, data: Partial<TeamUser>) =>
     api.put<TeamUser>(`/equipe/${id}`, data),

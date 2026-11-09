@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { FilaService } from './fila.service.js'
 import { entrarFilaSchema, acaoFilaSchema } from './fila.schema.js'
 import { authenticate } from '../../middlewares/authenticate.js'
+import { requireModulo } from '../../middlewares/rbac.js'
 
 interface WsClient { readyState: number; send(data: string): void }
 const wsClients = new Set<WsClient>()
@@ -33,6 +34,7 @@ export async function filaRoutes(fastify: FastifyInstance) {
   // Rotas protegidas
   fastify.register(async (app) => {
     app.addHook('preHandler', authenticate)
+    app.addHook('preHandler', requireModulo('FILA'))
 
     app.get('/', async (request, reply) => {
       const user = request.user as { unidadeId?: string }

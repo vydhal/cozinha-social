@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   UtensilsCrossed, CheckCircle2, Users, Home, TrendingUp, AlertTriangle,
-  Ban, MapPin, ArrowRight, ScanFace, UserCheck,
+  Ban, MapPin, ArrowRight, ScanFace, UserCheck, Package,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -17,12 +17,24 @@ import {
 } from "recharts";
 import { relatoriosApi } from "@/lib/api/relatorios.api";
 import { retiradasApi } from "@/lib/api/retiradas.api";
+import { estoqueApi } from "@/lib/api/estoque.api";
+import { useAuth, temModulo } from "@/lib/store";
 
 export const Route = createFileRoute("/_app/")({
   component: Dashboard,
 });
 
 function Dashboard() {
+  const { user } = useAuth();
+  const podeVerEstoque = temModulo(user, "ESTOQUE");
+
+  const { data: alertasEstoque } = useQuery({
+    queryKey: ["estoque-alertas"],
+    queryFn: () => estoqueApi.alertas(),
+    enabled: podeVerEstoque,
+    refetchInterval: 60_000,
+  });
+
   const { data: kpis } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => relatoriosApi.dashboard(),
@@ -234,7 +246,10 @@ function Dashboard() {
                 { icon: AlertTriangle, color: "text-warning-foreground bg-warning/30", titulo: "Cota próxima do limite", texto: `Restam ${disponiveis} quentinhas para hoje.` },
                 { icon: Ban, color: "text-destructive bg-destructive/10", titulo: "Tentativas duplicadas", texto: `${kpis?.tentativasDuplicadas ?? 0} tentativa(s) bloqueada(s) hoje.` },
                 { icon: Users, color: "text-primary bg-primary/10", titulo: "Cadastros incompletos", texto: `${kpis?.cadastrosIncompletos ?? 0} beneficiário(s) sem biometria.`, link: "/beneficiarios" as const, search: { biometria: "pendente" } },
-              ] satisfies { icon: typeof AlertTriangle; color: string; titulo: string; texto: string; link?: "/beneficiarios"; search?: { biometria: string } }[]
+                ...(podeVerEstoque && alertasEstoque && alertasEstoque.length > 0
+                  ? [{ icon: Package, color: "text-destructive bg-destructive/10", titulo: "Estoque baixo", texto: `${alertasEstoque.map(a => a.nome).join(", ")}.`, link: "/estoque" as const, search: undefined }]
+                  : []),
+              ] satisfies { icon: typeof AlertTriangle; color: string; titulo: string; texto: string; link?: "/beneficiarios" | "/estoque"; search?: { biometria: string } }[]
             ).map((a, i) => {
               const I = a.icon;
               const content = (

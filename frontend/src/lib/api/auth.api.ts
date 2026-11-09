@@ -1,7 +1,7 @@
 import { api } from "./client";
 
 export interface LoginResponse {
-  user: { id: string; nome: string; email: string; role: string; avatar?: string; cargo?: string; unidadeId?: string };
+  user: { id: string; nome: string; email: string; role: string; avatar?: string; cargo?: string; unidadeId?: string; modulosPermitidos?: string[] };
   token: string;
   refreshToken: string;
 }

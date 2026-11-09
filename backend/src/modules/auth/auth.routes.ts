@@ -46,12 +46,12 @@ export async function authRoutes(fastify: FastifyInstance) {
     const { userId } = request.params as { userId: string }
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, unidadeId: true },
+      select: { id: true, nome: true, email: true, role: true, status: true, avatar: true, cargo: true, unidadeId: true, modulosPermitidos: true },
     })
     if (!target) throw new NotFoundError('Usuário')
     if (target.status !== 'ATIVO') throw new AppError('Usuário inativo', 400)
     const token = fastify.jwt.sign(
-      { id: target.id, email: target.email, role: target.role, nome: target.nome },
+      { id: target.id, email: target.email, role: target.role, nome: target.nome, modulosPermitidos: target.modulosPermitidos },
       { expiresIn: '2h' },
     )
     return reply.send({ data: { token, user: target } })

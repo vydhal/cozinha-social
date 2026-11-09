@@ -17,6 +17,8 @@ import { relatoriosRoutes } from './modules/relatorios/relatorios.routes.js'
 import { equipeRoutes } from './modules/equipe/equipe.routes.js'
 import { configuracoesRoutes } from './modules/configuracoes/configuracoes.routes.js'
 import { adminRoutes } from './modules/admin/admin.routes.js'
+import { estoqueRoutes } from './modules/estoque/estoque.routes.js'
+import { notificacoesRoutes } from './modules/notificacoes/notificacoes.routes.js'
 import { validarRoutes } from './modules/relatorios/validar.routes.js'
 import { integracaoRoutes } from './modules/integracao/integracao.routes.js'
 
@@ -97,6 +99,8 @@ export async function buildApp() {
   await fastify.register(equipeRoutes, { prefix: '/api/equipe' })
   await fastify.register(configuracoesRoutes, { prefix: '/api/configuracoes' })
   await fastify.register(adminRoutes, { prefix: '/api/admin' })
+  await fastify.register(estoqueRoutes, { prefix: '/api/estoque' })
+  await fastify.register(notificacoesRoutes, { prefix: '/api/notificacoes' })
   await fastify.register(validarRoutes, { prefix: '/api' })
   await fastify.register(integracaoRoutes, { prefix: '/api/integracao' })
 

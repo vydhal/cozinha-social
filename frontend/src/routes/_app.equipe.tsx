@@ -22,7 +22,7 @@ import { Plus, Mail, Phone, Shield, Pencil, Trash2, Loader2, UserCheck } from "l
 import { toast } from "sonner";
 import { equipeApi, type TeamUser } from "@/lib/api/equipe.api";
 import { authApi } from "@/lib/api/auth.api";
-import { useAuth, type UserRole } from "@/lib/store";
+import { useAuth, type UserRole, MODULOS, type Modulo } from "@/lib/store";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/equipe")({ component: Equipe });
@@ -33,7 +33,29 @@ function roleBadge(role: TeamUser["role"]) {
   return <Badge variant="secondary">Colaborador</Badge>;
 }
 
-const emptyForm = { nome: "", email: "", senha: "", role: "COLABORADOR", cargo: "", telefone: "" };
+const todosModulos = MODULOS.map(m => m.value);
+const emptyForm = { nome: "", email: "", senha: "", role: "COLABORADOR", cargo: "", telefone: "", modulosPermitidos: todosModulos as Modulo[] };
+
+// Toggle por módulo liberado/bloqueado. Superadmin sempre tem acesso total, então
+// os toggles não fazem sentido para esse perfil — mostramos um aviso no lugar.
+function ModuloToggles({ role, value, onChange }: { role: string; value: Modulo[]; onChange: (v: Modulo[]) => void }) {
+  if (role === "SUPERADMIN") {
+    return <p className="text-xs text-muted-foreground">Superadmin tem acesso total a todos os módulos.</p>;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {MODULOS.map(m => (
+        <label key={m.value} className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-sm">
+          <span className="truncate">{m.label}</span>
+          <Switch
+            checked={value.includes(m.value)}
+            onCheckedChange={(checked) => onChange(checked ? [...value, m.value] : value.filter(v => v !== m.value))}
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
 
 function Equipe() {
   const qc = useQueryClient();
@@ -47,7 +69,7 @@ function Equipe() {
     try {
       const res = await authApi.impersonate(u.id);
       startImpersonation(
-        { id: res.user.id, nome: res.user.nome, email: res.user.email, role: res.user.role as UserRole, avatar: res.user.avatar, cargo: res.user.cargo, unidadeId: res.user.unidadeId },
+        { id: res.user.id, nome: res.user.nome, email: res.user.email, role: res.user.role as UserRole, avatar: res.user.avatar, cargo: res.user.cargo, unidadeId: res.user.unidadeId, modulosPermitidos: res.user.modulosPermitidos as Modulo[] | undefined },
         res.token,
       );
       toast.success(`Simulando acesso de ${u.nome}`);
@@ -66,7 +88,7 @@ function Equipe() {
   // Editar
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<TeamUser | null>(null);
-  const [editForm, setEditForm] = useState<{ nome: string; email: string; cargo: string; telefone: string; role: TeamUser["role"] }>({ nome: "", email: "", cargo: "", telefone: "", role: "COLABORADOR" });
+  const [editForm, setEditForm] = useState<{ nome: string; email: string; cargo: string; telefone: string; role: TeamUser["role"]; modulosPermitidos: Modulo[] }>({ nome: "", email: "", cargo: "", telefone: "", role: "COLABORADOR", modulosPermitidos: todosModulos });
 
   // Deletar
   const [deleteTarget, setDeleteTarget] = useState<TeamUser | null>(null);
@@ -113,7 +135,7 @@ function Equipe() {
 
   const openEdit = (u: TeamUser) => {
     setEditTarget(u);
-    setEditForm({ nome: u.nome, email: u.email, cargo: u.cargo ?? "", telefone: u.telefone ?? "", role: u.role });
+    setEditForm({ nome: u.nome, email: u.email, cargo: u.cargo ?? "", telefone: u.telefone ?? "", role: u.role, modulosPermitidos: u.modulosPermitidos ?? todosModulos });
     setEditOpen(true);
   };
 
@@ -216,10 +238,11 @@ function Equipe() {
               </tr></thead>
               <tbody>
                 {[
-                  ["Confirmar retirada", "✓", "✓", "✓"],
-                  ["Cadastrar beneficiários", "✓", "✓", "✓"],
+                  ["Confirmar retirada", "✓*", "✓*", "✓"],
+                  ["Cadastrar beneficiários", "✓*", "✓*", "✓"],
+                  ["Controlar estoque", "✓*", "✓*", "✓"],
                   ["Excluir cadastros", "—", "✓", "✓"],
-                  ["Ver relatórios", "—", "✓", "✓"],
+                  ["Ver relatórios", "—", "✓*", "✓"],
                   ["Gerenciar equipe", "—", "—", "✓"],
                   ["Configurar plataforma", "—", "—", "✓"],
                 ].map((r, i) => (
@@ -232,6 +255,7 @@ function Equipe() {
                 ))}
               </tbody>
             </table></div>
+            <p className="mt-2 text-[11px] text-muted-foreground">* Depende dos módulos liberados para o usuário (editar usuário → Módulos liberados).</p>
           </CardContent>
         </Card>
 
@@ -281,6 +305,10 @@ function Equipe() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-1.5">
+              <Label>Módulos liberados</Label>
+              <ModuloToggles role={form.role} value={form.modulosPermitidos} onChange={v => setForm(f => ({ ...f, modulosPermitidos: v }))} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNovoOpen(false)}>Cancelar</Button>
@@ -314,6 +342,10 @@ function Equipe() {
                   <SelectItem value="SUPERADMIN">Superadmin</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Módulos liberados</Label>
+              <ModuloToggles role={editForm.role} value={editForm.modulosPermitidos} onChange={v => setEditForm(f => ({ ...f, modulosPermitidos: v }))} />
             </div>
           </div>
           <DialogFooter>

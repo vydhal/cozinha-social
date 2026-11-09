@@ -27,3 +27,18 @@ export function requireAdmin() {
 export function requireSuperAdmin() {
   return requireRole('SUPERADMIN')
 }
+
+// Módulos que podem ser liberados/bloqueados por usuário (via Equipe). SUPERADMIN
+// sempre tem acesso a todos, independente do que estiver em `modulosPermitidos`.
+export const MODULOS = ['BENEFICIARIOS', 'RETIRADA', 'FACIAL', 'FILA', 'LISTA_DIARIA', 'RELATORIOS', 'ESTOQUE'] as const
+export type Modulo = typeof MODULOS[number]
+
+export function requireModulo(modulo: Modulo) {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
+    const user = request.user as { role: Role; modulosPermitidos?: string[] }
+    if (user.role === 'SUPERADMIN') return
+    if (!user.modulosPermitidos?.includes(modulo)) {
+      throw new ForbiddenError('Você não tem acesso a este módulo')
+    }
+  }
+}

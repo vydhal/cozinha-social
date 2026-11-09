@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MODULOS } from '../../middlewares/rbac.js'
 
 export const createUserSchema = z.object({
   nome: z.string().min(2),
@@ -8,6 +9,7 @@ export const createUserSchema = z.object({
   cargo: z.string().optional(),
   telefone: z.string().optional(),
   unidadeId: z.string().uuid().optional(),
+  modulosPermitidos: z.array(z.enum(MODULOS)).optional(),
 })
 
 export const updateUserSchema = createUserSchema.omit({ senha: true }).partial().extend({

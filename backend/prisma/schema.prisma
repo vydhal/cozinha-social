@@ -35,6 +35,10 @@ model User {
   telefone     String?
   cargo        String?
   unidadeId    String?
+  // Módulos liberados para este usuário (ignorado para SUPERADMIN, que sempre tem acesso
+  // total). Default cobre todos os módulos existentes hoje para não quebrar contas já
+  // cadastradas quando a coluna for criada — superadmin restringe depois, caso a caso.
+  modulosPermitidos String[] @default(["BENEFICIARIOS", "RETIRADA", "FACIAL", "FILA", "LISTA_DIARIA", "RELATORIOS", "ESTOQUE"])
   criadoEm     DateTime   @default(now())
   atualizadoEm DateTime   @updatedAt
   deletadoEm   DateTime?
@@ -46,6 +50,7 @@ model User {
   refreshTokens        RefreshToken[]
   documentosAprov      Documento[]          @relation("DocumentosAprovados")
   documentosRelatorios DocumentoRelatorio[]
+  movimentosEstoque    MovimentoEstoque[]
 
   @@index([email])
   @@index([role])
@@ -374,8 +379,64 @@ model Unidade {
   retiradas      Retirada[]
   bairros        Bairro[]
   configuracao   Configuracao?
+  itensEstoque   ItemEstoque[]
 
   @@map("unidades")
+}
+
+// ============================================
+// ESTOQUE
+// ============================================
+
+enum CategoriaEstoque {
+  ALIMENTO
+  LIMPEZA
+  SUPRIMENTO
+  GAS
+  OUTRO
+}
+
+enum TipoMovimentoEstoque {
+  ENTRADA
+  SAIDA
+  AJUSTE
+}
+
+model ItemEstoque {
+  id                String           @id @default(uuid())
+  nome              String
+  categoria         CategoriaEstoque
+  unidadeMedida     String
+  quantidadeAtual   Float            @default(0)
+  quantidadeMinima  Float            @default(0)
+  ativo             Boolean          @default(true)
+  unidadeId         String?
+  criadoEm          DateTime         @default(now())
+  atualizadoEm      DateTime         @updatedAt
+
+  unidade           Unidade?            @relation(fields: [unidadeId], references: [id])
+  movimentos        MovimentoEstoque[]
+
+  @@index([categoria])
+  @@index([ativo])
+  @@map("itens_estoque")
+}
+
+model MovimentoEstoque {
+  id          String               @id @default(uuid())
+  itemId      String
+  tipo        TipoMovimentoEstoque
+  quantidade  Float
+  motivo      String?
+  operadorId  String
+  criadoEm    DateTime             @default(now())
+
+  item        ItemEstoque @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  operador    User        @relation(fields: [operadorId], references: [id])
+
+  @@index([itemId])
+  @@index([criadoEm])
+  @@map("movimentos_estoque")
 }
 
 // ============================================

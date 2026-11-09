@@ -6,7 +6,7 @@ import { UtensilsCrossed, Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from "l
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth, type UserRole } from "@/lib/store";
+import { useAuth, type UserRole, type Modulo } from "@/lib/store";
 import { authApi } from "@/lib/api/auth.api";
 import { configuracoesApi } from "@/lib/api/configuracoes.api";
 import { ApiError } from "@/lib/api/client";
@@ -50,7 +50,7 @@ function LoginPage() {
     try {
       const res = await authApi.login(email, senha);
       login(
-        { id: res.user.id, nome: res.user.nome, email: res.user.email, role: res.user.role as UserRole, avatar: res.user.avatar, cargo: res.user.cargo, unidadeId: res.user.unidadeId },
+        { id: res.user.id, nome: res.user.nome, email: res.user.email, role: res.user.role as UserRole, avatar: res.user.avatar, cargo: res.user.cargo, unidadeId: res.user.unidadeId, modulosPermitidos: res.user.modulosPermitidos as Modulo[] | undefined },
         res.token,
         res.refreshToken,
       );

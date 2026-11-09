@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { RelatoriosService } from './relatorios.service.js'
 import { authenticate } from '../../middlewares/authenticate.js'
-import { requireAdmin } from '../../middlewares/rbac.js'
+import { requireAdmin, requireModulo } from '../../middlewares/rbac.js'
 import { z } from 'zod'
 
 export async function relatoriosRoutes(fastify: FastifyInstance) {
@@ -16,21 +16,21 @@ export async function relatoriosRoutes(fastify: FastifyInstance) {
     return reply.send({ data: result })
   })
 
-  fastify.get('/evolucao-mensal', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.get('/evolucao-mensal', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { unidadeId?: string }
     const { unidadeId } = request.query as { unidadeId?: string }
     const result = await service.getEvolucaoMensal(unidadeId ?? user.unidadeId)
     return reply.send({ data: result })
   })
 
-  fastify.get('/bairros', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.get('/bairros', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { unidadeId?: string }
     const { unidadeId, periodo } = request.query as { unidadeId?: string; periodo?: 'hoje' | 'semana' | 'mes' | 'ano' }
     const result = await service.getFrequenciaBairros(unidadeId ?? user.unidadeId, periodo)
     return reply.send({ data: result })
   })
 
-  fastify.get('/familias-frequentes', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.get('/familias-frequentes', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { unidadeId?: string }
     const { unidadeId } = request.query as { unidadeId?: string }
     const result = await service.getFamiliasFrequentes(unidadeId ?? user.unidadeId)
@@ -51,7 +51,7 @@ export async function relatoriosRoutes(fastify: FastifyInstance) {
     return reply.send({ data: result })
   })
 
-  fastify.get('/', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.get('/', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { unidadeId?: string }
     const query = request.query as {
       periodo?: 'hoje' | 'semana' | 'mes' | 'ano' | 'personalizado'
@@ -67,7 +67,7 @@ export async function relatoriosRoutes(fastify: FastifyInstance) {
     return reply.send({ data: result })
   })
 
-  fastify.get('/base-usuarios', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.get('/base-usuarios', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { unidadeId?: string }
     const query = request.query as {
       periodo?: 'hoje' | 'semana' | 'mes' | 'ano' | 'personalizado'
@@ -80,7 +80,7 @@ export async function relatoriosRoutes(fastify: FastifyInstance) {
     return reply.send({ data: result })
   })
 
-  fastify.post('/documento', { preHandler: [requireAdmin()] }, async (request, reply) => {
+  fastify.post('/documento', { preHandler: [requireAdmin(), requireModulo('RELATORIOS')] }, async (request, reply) => {
     const user = request.user as { id: string }
     const schema = z.object({
       periodo: z.string(),

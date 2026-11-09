@@ -18,8 +18,10 @@ import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppRetiradaRouteImport } from './routes/_app.retirada'
 import { Route as AppRelatoriosRouteImport } from './routes/_app.relatorios'
 import { Route as AppReconhecimentoRouteImport } from './routes/_app.reconhecimento'
+import { Route as AppNotificacoesRouteImport } from './routes/_app.notificacoes'
 import { Route as AppListaDiariaRouteImport } from './routes/_app.lista-diaria'
 import { Route as AppFilaRouteImport } from './routes/_app.fila'
+import { Route as AppEstoqueRouteImport } from './routes/_app.estoque'
 import { Route as AppEquipeRouteImport } from './routes/_app.equipe'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
 import { Route as AppAdminRouteImport } from './routes/_app.admin'
@@ -72,6 +74,11 @@ const AppReconhecimentoRoute = AppReconhecimentoRouteImport.update({
   path: '/reconhecimento',
   getParentRoute: () => AppRoute,
 } as any)
+const AppNotificacoesRoute = AppNotificacoesRouteImport.update({
+  id: '/notificacoes',
+  path: '/notificacoes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppListaDiariaRoute = AppListaDiariaRouteImport.update({
   id: '/lista-diaria',
   path: '/lista-diaria',
@@ -80,6 +87,11 @@ const AppListaDiariaRoute = AppListaDiariaRouteImport.update({
 const AppFilaRoute = AppFilaRouteImport.update({
   id: '/fila',
   path: '/fila',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEstoqueRoute = AppEstoqueRouteImport.update({
+  id: '/estoque',
+  path: '/estoque',
   getParentRoute: () => AppRoute,
 } as any)
 const AppEquipeRoute = AppEquipeRouteImport.update({
@@ -128,8 +140,10 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AppAdminRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/equipe': typeof AppEquipeRoute
+  '/estoque': typeof AppEstoqueRoute
   '/fila': typeof AppFilaRoute
   '/lista-diaria': typeof AppListaDiariaRoute
+  '/notificacoes': typeof AppNotificacoesRoute
   '/reconhecimento': typeof AppReconhecimentoRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/retirada': typeof AppRetiradaRoute
@@ -146,8 +160,10 @@ export interface FileRoutesByTo {
   '/admin': typeof AppAdminRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/equipe': typeof AppEquipeRoute
+  '/estoque': typeof AppEstoqueRoute
   '/fila': typeof AppFilaRoute
   '/lista-diaria': typeof AppListaDiariaRoute
+  '/notificacoes': typeof AppNotificacoesRoute
   '/reconhecimento': typeof AppReconhecimentoRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/retirada': typeof AppRetiradaRoute
@@ -167,8 +183,10 @@ export interface FileRoutesById {
   '/_app/admin': typeof AppAdminRoute
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/equipe': typeof AppEquipeRoute
+  '/_app/estoque': typeof AppEstoqueRoute
   '/_app/fila': typeof AppFilaRoute
   '/_app/lista-diaria': typeof AppListaDiariaRoute
+  '/_app/notificacoes': typeof AppNotificacoesRoute
   '/_app/reconhecimento': typeof AppReconhecimentoRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
   '/_app/retirada': typeof AppRetiradaRoute
@@ -189,8 +207,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/configuracoes'
     | '/equipe'
+    | '/estoque'
     | '/fila'
     | '/lista-diaria'
+    | '/notificacoes'
     | '/reconhecimento'
     | '/relatorios'
     | '/retirada'
@@ -207,8 +227,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/configuracoes'
     | '/equipe'
+    | '/estoque'
     | '/fila'
     | '/lista-diaria'
+    | '/notificacoes'
     | '/reconhecimento'
     | '/relatorios'
     | '/retirada'
@@ -227,8 +249,10 @@ export interface FileRouteTypes {
     | '/_app/admin'
     | '/_app/configuracoes'
     | '/_app/equipe'
+    | '/_app/estoque'
     | '/_app/fila'
     | '/_app/lista-diaria'
+    | '/_app/notificacoes'
     | '/_app/reconhecimento'
     | '/_app/relatorios'
     | '/_app/retirada'
@@ -312,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReconhecimentoRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/notificacoes': {
+      id: '/_app/notificacoes'
+      path: '/notificacoes'
+      fullPath: '/notificacoes'
+      preLoaderRoute: typeof AppNotificacoesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/lista-diaria': {
       id: '/_app/lista-diaria'
       path: '/lista-diaria'
@@ -324,6 +355,13 @@ declare module '@tanstack/react-router' {
       path: '/fila'
       fullPath: '/fila'
       preLoaderRoute: typeof AppFilaRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/estoque': {
+      id: '/_app/estoque'
+      path: '/estoque'
+      fullPath: '/estoque'
+      preLoaderRoute: typeof AppEstoqueRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/equipe': {
@@ -382,8 +420,10 @@ interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRoute
   AppConfiguracoesRoute: typeof AppConfiguracoesRoute
   AppEquipeRoute: typeof AppEquipeRoute
+  AppEstoqueRoute: typeof AppEstoqueRoute
   AppFilaRoute: typeof AppFilaRoute
   AppListaDiariaRoute: typeof AppListaDiariaRoute
+  AppNotificacoesRoute: typeof AppNotificacoesRoute
   AppReconhecimentoRoute: typeof AppReconhecimentoRoute
   AppRelatoriosRoute: typeof AppRelatoriosRoute
   AppRetiradaRoute: typeof AppRetiradaRoute
@@ -398,8 +438,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRoute,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppEquipeRoute: AppEquipeRoute,
+  AppEstoqueRoute: AppEstoqueRoute,
   AppFilaRoute: AppFilaRoute,
   AppListaDiariaRoute: AppListaDiariaRoute,
+  AppNotificacoesRoute: AppNotificacoesRoute,
   AppReconhecimentoRoute: AppReconhecimentoRoute,
   AppRelatoriosRoute: AppRelatoriosRoute,
   AppRetiradaRoute: AppRetiradaRoute,

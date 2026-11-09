@@ -23,6 +23,7 @@ export class AuthService {
         avatar: true,
         cargo: true,
         unidadeId: true,
+        modulosPermitidos: true,
       },
     })
 
@@ -32,7 +33,7 @@ export class AuthService {
     const valid = await comparePassword(input.senha, user.senha)
     if (!valid) throw new UnauthorizedError('Email ou senha inválidos')
 
-    const payload = { id: user.id, email: user.email, role: user.role, nome: user.nome }
+    const payload = { id: user.id, email: user.email, role: user.role, nome: user.nome, modulosPermitidos: user.modulosPermitidos }
     const token = this.fastify.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
 
     const refreshToken = randomUUID()
@@ -50,7 +51,7 @@ export class AuthService {
   async refresh(refreshToken: string) {
     const stored = await prisma.refreshToken.findUnique({
       where: { token: refreshToken },
-      include: { user: { select: { id: true, email: true, role: true, nome: true, status: true } } },
+      include: { user: { select: { id: true, email: true, role: true, nome: true, status: true, modulosPermitidos: true } } },
     })
 
     if (!stored || stored.expiresAt < new Date()) {
@@ -60,7 +61,7 @@ export class AuthService {
 
     if (stored.user.status !== 'ATIVO') throw new UnauthorizedError('Conta inativa')
 
-    const payload = { id: stored.user.id, email: stored.user.email, role: stored.user.role, nome: stored.user.nome }
+    const payload = { id: stored.user.id, email: stored.user.email, role: stored.user.role, nome: stored.user.nome, modulosPermitidos: stored.user.modulosPermitidos }
     const token = this.fastify.jwt.sign(payload, { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' })
 
     return { token }
@@ -84,7 +85,7 @@ export class AuthService {
   async me(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, nome: true, email: true, role: true, avatar: true, cargo: true, telefone: true, unidadeId: true, status: true },
+      select: { id: true, nome: true, email: true, role: true, avatar: true, cargo: true, telefone: true, unidadeId: true, status: true, modulosPermitidos: true },
     })
     if (!user) throw new NotFoundError('Usuário')
     return user

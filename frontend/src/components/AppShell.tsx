@@ -3,26 +3,32 @@ import { motion } from "framer-motion";
 import {
   LayoutDashboard, Users, ScanFace, ListOrdered, UtensilsCrossed,
   BarChart3, ClipboardList, UserCog, Settings, Shield, LogOut, Menu, Tv,
-  Plus, MoreHorizontal,
+  Plus, MoreHorizontal, Package, Bell, UserPlus, FileText,
 } from "lucide-react";
 import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetHeader } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useAuth, useSettings } from "@/lib/store";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useAuth, useSettings, temModulo, type Modulo, type AuthUser } from "@/lib/store";
 import { authApi } from "@/lib/api/auth.api";
+import { notificacoesApi, type Notificacao } from "@/lib/api/notificacoes.api";
 import { cn } from "@/lib/utils";
 
 type UserRole = "SUPERADMIN" | "ADMIN" | "COLABORADOR";
 
-const nav: { to: string; label: string; icon: React.ElementType; roles?: UserRole[] }[] = [
+type NavItem = { to: string; label: string; icon: React.ElementType; roles?: UserRole[]; modulo?: Modulo };
+
+const nav: NavItem[] = [
   { to: "/", label: "Painel", icon: LayoutDashboard },
-  { to: "/retirada", label: "Retirada", icon: UtensilsCrossed },
-  { to: "/reconhecimento", label: "Facial", icon: ScanFace },
-  { to: "/fila", label: "Fila", icon: ListOrdered },
-  { to: "/beneficiarios", label: "Beneficiários", icon: Users },
-  { to: "/lista-diaria", label: "Lista diária", icon: ClipboardList },
-  { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { to: "/retirada", label: "Retirada", icon: UtensilsCrossed, modulo: "RETIRADA" },
+  { to: "/reconhecimento", label: "Facial", icon: ScanFace, modulo: "FACIAL" },
+  { to: "/fila", label: "Fila", icon: ListOrdered, modulo: "FILA" },
+  { to: "/beneficiarios", label: "Beneficiários", icon: Users, modulo: "BENEFICIARIOS" },
+  { to: "/lista-diaria", label: "Lista diária", icon: ClipboardList, modulo: "LISTA_DIARIA" },
+  { to: "/relatorios", label: "Relatórios", icon: BarChart3, roles: ["SUPERADMIN", "ADMIN"], modulo: "RELATORIOS" },
+  { to: "/estoque", label: "Estoque", icon: Package, modulo: "ESTOQUE" },
   { to: "/equipe", label: "Equipe", icon: UserCog, roles: ["SUPERADMIN", "ADMIN"] },
   { to: "/admin", label: "Superadmin", icon: Shield, roles: ["SUPERADMIN"] },
   { to: "/configuracoes", label: "Configurações", icon: Settings, roles: ["SUPERADMIN", "ADMIN"] },
@@ -34,11 +40,12 @@ const bottomNavMain = [
   { to: "/lista-diaria", label: "Lista diária", icon: ClipboardList },
 ];
 
-const moreNavItems: { to: string; label: string; icon: React.ElementType; roles?: UserRole[] }[] = [
-  { to: "/beneficiarios", label: "Beneficiários", icon: Users },
-  { to: "/reconhecimento", label: "Facial", icon: ScanFace },
-  { to: "/fila", label: "Fila", icon: ListOrdered },
-  { to: "/relatorios", label: "Relatórios", icon: BarChart3, roles: ["SUPERADMIN", "ADMIN"] },
+const moreNavItems: NavItem[] = [
+  { to: "/beneficiarios", label: "Beneficiários", icon: Users, modulo: "BENEFICIARIOS" },
+  { to: "/reconhecimento", label: "Facial", icon: ScanFace, modulo: "FACIAL" },
+  { to: "/fila", label: "Fila", icon: ListOrdered, modulo: "FILA" },
+  { to: "/relatorios", label: "Relatórios", icon: BarChart3, roles: ["SUPERADMIN", "ADMIN"], modulo: "RELATORIOS" },
+  { to: "/estoque", label: "Estoque", icon: Package, modulo: "ESTOQUE" },
   { to: "/equipe", label: "Equipe", icon: UserCog, roles: ["SUPERADMIN", "ADMIN"] },
   { to: "/admin", label: "Superadmin", icon: Shield, roles: ["SUPERADMIN"] },
   { to: "/configuracoes", label: "Configurações", icon: Settings, roles: ["SUPERADMIN", "ADMIN"] },
@@ -67,7 +74,10 @@ export function Logo({ compact = false }: { compact?: boolean }) {
 function SidebarLinks({ onNavigate }: { onNavigate?: () => void }) {
   const loc = useLocation();
   const { user } = useAuth();
-  const visibleNav = nav.filter(item => !item.roles || item.roles.includes(user?.role as UserRole));
+  const visibleNav = nav.filter(item =>
+    (!item.roles || item.roles.includes(user?.role as UserRole)) &&
+    (!item.modulo || temModulo(user, item.modulo))
+  );
   return (
     <nav className="flex flex-col gap-1 px-3">
       {visibleNav.map((item) => {
@@ -91,6 +101,75 @@ function SidebarLinks({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
     </nav>
+  );
+}
+
+const notifIcon: Record<Notificacao["tipo"], React.ElementType> = {
+  ESTOQUE_BAIXO: Package,
+  BENEFICIARIO_PENDENTE: UserPlus,
+  DOCUMENTO_PENDENTE: FileText,
+};
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const { data: notificacoes = [] } = useQuery({
+    queryKey: ["notificacoes"],
+    queryFn: () => notificacoesApi.list(),
+    refetchInterval: 60_000,
+  });
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="icon" className="relative">
+          <Bell className="h-4 w-4" />
+          {notificacoes.length > 0 && (
+            <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+              {notificacoes.length > 9 ? "9+" : notificacoes.length}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="border-b px-4 py-3">
+          <div className="text-sm font-semibold">Notificações</div>
+          <div className="text-xs text-muted-foreground">
+            {notificacoes.length === 0 ? "Nada pendente no momento." : `${notificacoes.length} item(ns) precisam de atenção.`}
+          </div>
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          {notificacoes.slice(0, 8).map((n) => {
+            const Icon = notifIcon[n.tipo];
+            return (
+              <Link
+                key={n.id}
+                to={n.link}
+                onClick={() => setOpen(false)}
+                className="flex items-start gap-3 border-b px-4 py-3 text-sm transition-colors last:border-0 hover:bg-muted/50"
+              >
+                <div className={cn(
+                  "grid h-8 w-8 shrink-0 place-items-center rounded-lg",
+                  n.severidade === "alta" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                )}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{n.titulo}</div>
+                  <div className="truncate text-xs text-muted-foreground">{n.descricao}</div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+        {notificacoes.length > 0 && (
+          <div className="border-t p-2">
+            <Link to="/notificacoes" onClick={() => setOpen(false)}>
+              <Button variant="ghost" size="sm" className="w-full">Ver todas</Button>
+            </Link>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -121,10 +200,13 @@ function useInactivityLogout() {
   }, [logout, navigate]);
 }
 
-function MobileBottomNav({ user, onLogout }: { user: { role?: string; nome?: string } | null; onLogout: () => void }) {
+function MobileBottomNav({ user, onLogout }: { user: { role?: string; nome?: string; modulosPermitidos?: Modulo[] } | null; onLogout: () => void }) {
   const loc = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
-  const visibleMore = moreNavItems.filter(i => !i.roles || i.roles.includes(user?.role as UserRole));
+  const visibleMore = moreNavItems.filter(i =>
+    (!i.roles || i.roles.includes(user?.role as UserRole)) &&
+    (!i.modulo || temModulo(user as AuthUser | null, i.modulo))
+  );
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur lg:hidden">
@@ -303,6 +385,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="lg:hidden"><Logo compact /></div>
             <div className="hidden truncate text-sm font-semibold text-muted-foreground lg:block">{nomeCozinha}</div>
             <div className="ml-auto flex items-center gap-2">
+              <NotificationBell />
               <Link to="/painel" className="hidden sm:inline-flex">
                 <Button variant="outline" size="sm" className="gap-2">
                   <Tv className="h-4 w-4" /> Modo painel

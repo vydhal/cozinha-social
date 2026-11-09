@@ -394,6 +394,127 @@ no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constrai
 
 ---
 
+### Sessão 10 — Fix exportação de relatório + permissões por módulo + Estoque
+
+#### Fix: exportação de período personalizado trazia só os dias mais recentes
+- Sintoma: exportar um período longo (ex.: 01/10 a 09/11) trazia apenas as retiradas mais
+  recentes, não o período completo.
+- Causa: `RelatoriosService.getRelatorio` buscava as retiradas com `take: 100`, ordenado por
+  `horario: desc` — com mais de 100 retiradas no intervalo, as mais antigas do período ficavam
+  de fora. Esse mesmo array alimenta a tabela da tela, o CSV e o PDF (não há endpoint de
+  exportação separado).
+- Fix: removido o `take: 100` em `relatorios.service.ts`. A tela continua mostrando só os 20
+  primeiros (`retiradas.slice(0, 20)` no frontend), então a UI não fica pesada — só a
+  exportação passa a levar o conjunto completo do período.
+
+#### Permissões por módulo (toggle por usuário)
+- Motivação: superadmin precisa liberar/bloquear telas específicas por funcionário (ex.:
+  alguém só cadastra beneficiário, sem acesso a relatórios), além da hierarquia de `role`
+  (SUPERADMIN/ADMIN/COLABORADOR) que já existia.
+- Schema: `User.modulosPermitidos String[]`, default com todos os módulos — para não quebrar
+  o acesso de nenhuma conta já cadastrada quando a coluna for criada em produção (`prisma db
+  push`). SUPERADMIN sempre ignora essa lista (acesso total, não editável).
+- Módulos (lista única, backend `MODULOS` em `middlewares/rbac.ts` e frontend `MODULOS` em
+  `lib/store.ts` — manter as duas em sincronia): `BENEFICIARIOS`, `RETIRADA`, `FACIAL`, `FILA`,
+  `LISTA_DIARIA`, `RELATORIOS`, `ESTOQUE`. "Painel" (dashboard) não é restringível — sempre
+  visível a todo usuário autenticado.
+- Backend: `requireModulo(modulo)` em `middlewares/rbac.ts`, aplicado por rota/arquivo nos
+  módulos de beneficiários, retiradas (`RETIRADA`/`FACIAL`/`LISTA_DIARIA` em endpoints
+  distintos dentro do mesmo arquivo), fila, relatórios (empilhado com `requireAdmin()`
+  existente) e estoque. `modulosPermitidos` viaja no JWT (login/refresh/me) — mudanças feitas
+  pelo superadmin só valem após o próximo refresh do token (mesma defasagem que já existia
+  para troca de `role`).
+- Frontend: `temModulo(user, modulo)` em `lib/store.ts`; `AppShell` filtra o menu (desktop e
+  mobile) por `roles` **e** `modulo`; tela Equipe ganhou seção "Módulos liberados" (toggles)
+  nos diálogos de criar/editar usuário — escondida para SUPERADMIN (acesso sempre total).
+- Não há guard de rota no frontend (`beforeLoad`) para módulo bloqueado — mesmo padrão que já
+  existia para páginas restritas por `role` (ex.: `/equipe` para COLABORADOR): o item só
+  desaparece do menu, e o backend 403 se a API for chamada direto.
+
+#### Novo módulo: Estoque (`/estoque`)
+- Motivação: cozinha não tinha controle de itens de uso diário (alimentos, limpeza,
+  suprimentos, gás) — sem saber o que está acabando até faltar.
+- Schema: `ItemEstoque` (nome, categoria enum `CategoriaEstoque`, unidadeMedida livre,
+  quantidadeAtual, quantidadeMinima, ativo) + `MovimentoEstoque` (tipo `ENTRADA`/`SAIDA`/
+  `AJUSTE`, quantidade, motivo opcional, operador, timestamp).
+- Baixa é **manual** (v1) — sem vínculo automático com as retiradas de quentinhas. Decisão
+  consciente: automatizar exigiria cadastrar uma "receita" por quentinha (quanto de arroz/
+  feijão por unidade), o que é mais complexo e caro de manter atualizado. Pode ser adicionado
+  depois se fizer sentido.
+- `EstoqueService.registrarMovimento` roda update do saldo + insert do movimento numa
+  `$transaction`; `SAIDA`/`AJUSTE` que deixaria o saldo negativo é rejeitado (`ValidationError`).
+- Exclusão: se o item já tem movimentações, `remove()` desativa (`ativo: false`) em vez de
+  apagar, para preservar o histórico; sem movimentações, apaga de fato.
+- Alerta de estoque baixo: **dentro do sistema**, sem e-mail/SMS/push (infra que o projeto não
+  tem hoje). Cada item com `quantidadeAtual <= quantidadeMinima` fica marcado como `baixo` na
+  listagem (`GET /estoque`) e aparece em `GET /estoque/alertas` (usado no card "Alertas" do
+  Dashboard, só carregado se `temModulo(user, "ESTOQUE")`).
+- Tela única com filtro por categoria (`Tabs`), não telas separadas por categoria — decisão
+  tomada com o usuário para manter simples (uma permissão de módulo só, `ESTOQUE`, cobre tudo).
+- Acesso: restrito por módulo `ESTOQUE`, liberado pelo superadmin por usuário na tela Equipe —
+  não por `role` (tanto ADMIN quanto COLABORADOR podem ter ou não esse módulo).
+
+#### Aba "Relatório" dentro de `/estoque`
+- Pedido do usuário após ver o cadastro funcionando: faltava visão consolidada de uso — quanto
+  entrou/saiu, filtrado por produto, e quem fez cada baixa.
+- Não é uma rota nova — é uma segunda aba na mesma página (`Cadastro` / `Relatório`), controlada
+  por `useState` local (`tab`), não pelo router. Decisão: manter 1 módulo de permissão só
+  (`ESTOQUE`) cobrindo as duas abas, em vez de criar uma permissão separada para o relatório.
+- Backend: `GET /estoque/movimentos` (rota estática, registrada antes de `/:id` no arquivo para
+  não colidir com o parâmetro) — filtros `itemId`, `categoria`, `tipo`, `de`/`ate`. Sem
+  `take` fixo sobre o período pedido (mesmo cuidado do fix de relatório de retiradas acima);
+  quando `de`/`ate` não vêm, cai para os últimos 30 dias como padrão.
+- Retorna `{ movimentos, resumo: { totalEntradas, totalSaidas } }` — a tabela mostra
+  data/hora, produto, tipo (badge), quantidade, motivo e **quem registrou** (`operador.nome`).
+
+#### Central de notificações (sino no topbar + `/notificacoes`)
+- Pedido do usuário: não havia lugar nenhum no sistema pra ver, de forma centralizada, o que
+  precisa de atenção — os alertas (estoque baixo, cadastros/documentos pendentes) só apareciam
+  espalhados (card do Dashboard, badge dentro de `/estoque`).
+- **Decisão de design**: sem tabela nova no banco, sem "marcar como lida". São estados atuais
+  (algo pendente), não eventos pontuais — o item some sozinho da lista quando resolvido
+  (repôs o estoque, aprovou o cadastro/documento). Evita todo o peso de um sistema de
+  eventos + leitura por usuário para o que é, na prática, uma lista de pendências.
+- Backend: `backend/src/modules/notificacoes/` — `GET /api/notificacoes`, só `authenticate`
+  (sem `requireModulo` de arquivo): o filtro por módulo é feito **dentro do service**
+  (`temModulo` local), porque a rota agrega fontes de módulos diferentes e cada uma só entra
+  na resposta se o usuário tiver aquele módulo liberado.
+  - `ESTOQUE_BAIXO`: itens ativos com `quantidadeAtual <= quantidadeMinima` (módulo `ESTOQUE`).
+  - `BENEFICIARIO_PENDENTE`: `Beneficiario.status = 'PENDENTE'` (vem do auto-cadastro público),
+    `DOCUMENTO_PENDENTE`: `Documento.status = 'PENDENTE'` (ambos módulo `BENEFICIARIOS`).
+  - Ordenado por `criadoEm` desc (data do item/documento, não de uma notificação separada).
+- Frontend: `NotificationBell` em `AppShell.tsx` — ícone de sino no topbar (visível em
+  desktop e mobile, é o mesmo `<header>`) com badge de contagem, `Popover` com os 8 mais
+  recentes e link "Ver todas" → `/notificacoes` (lista completa, agrupada por tipo).
+  `refetchInterval: 60_000`, mesmo padrão dos outros alertas do Dashboard.
+- Não tem item correspondente no menu lateral — acesso só pelo sino, mesmo padrão do botão
+  "Modo painel" no header (não está no `nav[]` do `AppShell`).
+
+#### Fix: menu lateral (desktop) escondia rotas liberadas por módulo
+- Sintoma: usuário com todos os módulos habilitados não via Retirada/Facial/Fila/
+  Beneficiários/Lista diária/Relatórios/Estoque no menu **desktop**, só Painel/Equipe/
+  Configurações (as que dependem só de `role`). No **mobile** parecia funcionar, mas só
+  porque a barra inferior principal (`bottomNavMain`) nunca checou módulo.
+- Causa: ao adicionar `modulosPermitidos` ao JWT (login/refresh/me em `auth.service.ts`),
+  esqueci o endpoint `/auth/impersonate` (monta o token com seleção própria) **e** o login
+  normal no frontend (`login.tsx`) descartava o campo ao montar o objeto salvo na sessão —
+  mesmo vindo certo do backend. Resultado: `user.modulosPermitidos` ficava `undefined`,
+  `temModulo()` caía no fallback `false`.
+- Fix: `auth.routes.ts` (`/impersonate`) passou a selecionar e assinar `modulosPermitidos`;
+  `login.tsx` e `_app.equipe.tsx` (`handleImpersonate`) passaram a propagar o campo pro
+  `AuthUser` da store. Sessões já salvas no `localStorage` antes do fix continuam sem o
+  campo até um novo login/simulação — não é bug recorrente, é cache antigo.
+
+#### Exportação CSV/PDF do relatório de movimentações do estoque
+- Mesmo padrão visual dos outros PDFs do sistema (cabeçalho com logo + `nomeCozinha`,
+  rodapé institucional `/rodape.png`, `window.print()`) — sem código de autenticação
+  (`REL-*`), igual ao PDF de listagem de beneficiários: é só um relatório, não um
+  documento validável publicamente.
+  Respeita os filtros ativos da aba (produto, tipo, período) e mostra o resumo
+  (total de movimentações, entradas, saídas) antes da tabela.
+
+---
+
 ## Arquivos-chave
 
 ### Frontend (`frontend/src/`)
@@ -407,11 +528,16 @@ no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constrai
 | `routes/_app.admin.tsx` | Superadmin: bairros, link de cadastro, unidades |
 | `routes/cadastro.tsx` | Auto-cadastro público (sem auth) |
 | `routes/painel.tsx` | Painel público de senhas (TV) |
+| `routes/_app.estoque.tsx` | Controle de estoque (alimentos/limpeza/suprimentos/gás) |
+| `routes/_app.notificacoes.tsx` | Central de notificações (lista completa) |
 | `lib/api/beneficiarios.api.ts` | API: beneficiários + família |
 | `lib/api/fila.api.ts` | API: fichas/fila |
 | `lib/api/relatorios.api.ts` | API: relatórios |
 | `lib/api/configuracoes.api.ts` | API: configurações + cadastro público |
+| `lib/api/estoque.api.ts` | API: estoque |
+| `lib/api/notificacoes.api.ts` | API: notificações |
 | `hooks/use-camera.ts` | `useCameraStream`/`savedCameraId` — seletor de câmera compartilhado |
+| `lib/store.ts` | `useAuth`, `MODULOS`, `temModulo()` — permissões por módulo |
 | `lib/utils.ts` | `cn()`, `maskCpf()` |
 
 ### Backend (`backend/src/modules/`)
@@ -424,8 +550,11 @@ no Portainer (o serviço `migrate` roda o `prisma db push` — remove a constrai
 | `relatorios/validar.routes.ts` | Rota pública de validação (sem auth JWT) |
 | `integracao/` | Endpoint máquina-a-máquina por API key |
 | `configuracoes/` | Config, bairros, logo, cadastro público |
-| `equipe/` | Usuários e permissões |
+| `equipe/` | Usuários, permissões e módulos liberados |
+| `estoque/` | Itens, movimentações (entrada/saída/ajuste), alertas de estoque baixo |
+| `notificacoes/` | Agrega pendências (estoque baixo, cadastros/documentos pendentes) — sem tabela própria |
 | `admin/` | Stats globais, unidades |
+| `middlewares/rbac.ts` | `requireRole`/`requireAdmin`/`requireSuperAdmin` + `requireModulo`/`MODULOS` |
 
 ### Prisma (`backend/prisma/schema.prisma`)
 Modelos principais:
@@ -435,6 +564,9 @@ Modelos principais:
 - `Familia`: **grupo explícito** (opt-in), não mais único por endereço (Sessão 7)
 - `Retirada`: `metodoRetirada MetodoRetirada @default(MANUAL)`, `retiradoPorNome String?` (procuração)
 - `DocumentoRelatorio`: código `REL-YYYYMMDD-XXXXX`, período, totais, geradoPorId
+- `User`: `modulosPermitidos String[]` — módulos liberados por usuário (Sessão 10); default
+  cobre todos os módulos para não quebrar contas já cadastradas
+- `ItemEstoque` / `MovimentoEstoque`: controle de estoque (Sessão 10)
 
 ---
 

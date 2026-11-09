@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { BeneficiariosService } from './beneficiarios.service.js'
 import { createBeneficiarioSchema, updateBeneficiarioSchema, listBeneficiariosSchema } from './beneficiarios.schema.js'
 import { authenticate } from '../../middlewares/authenticate.js'
-import { requireAdmin } from '../../middlewares/rbac.js'
+import { requireAdmin, requireModulo } from '../../middlewares/rbac.js'
 import { createAuditLog } from '../../shared/utils/audit.js'
 import { saveUpload } from '../../shared/utils/upload.js'
 
@@ -10,6 +10,7 @@ export async function beneficiariosRoutes(fastify: FastifyInstance) {
   const service = new BeneficiariosService()
 
   fastify.addHook('preHandler', authenticate)
+  fastify.addHook('preHandler', requireModulo('BENEFICIARIOS'))
 
   fastify.get('/', async (request, reply) => {
     const filters = listBeneficiariosSchema.parse(request.query)
