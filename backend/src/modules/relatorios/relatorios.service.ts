@@ -216,7 +216,6 @@ export class RelatoriosService {
       prisma.retirada.findMany({
         where,
         orderBy: { horario: 'desc' },
-        take: 100,
         include: {
           beneficiario: { select: { nome: true, cpf: true, bairro: true } },
           operador: { select: { nome: true } },
