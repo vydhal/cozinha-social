@@ -691,25 +691,21 @@ function FotoCaptura({ fotoUrl, nome, uploading, onFile, compact = false }: {
   const fileRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const [open, setOpen] = useState(false);
   const [captured, setCaptured] = useState<string | null>(null);
+  const { cameras, cameraId, start, stop, select } = useCameraStream(videoRef);
 
-  const startStream = async () => {
+  const startStream = async (preferredId?: string) => {
     setCaptured(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      await start(preferredId ?? savedCameraId());
     } catch {
       toast.error("Não foi possível acessar a câmera. Verifique as permissões.");
       setOpen(false);
     }
   };
 
-  const stopStream = () => { streamRef.current?.getTracks().forEach(t => t.stop()); streamRef.current = null; };
+  const stopStream = () => stop();
 
   const openCamera = () => { setOpen(true); startStream(); };
   const close = () => { stopStream(); setCaptured(null); setOpen(false); };
@@ -755,7 +751,8 @@ function FotoCaptura({ fotoUrl, nome, uploading, onFile, compact = false }: {
           onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
         <CameraDialog open={open} onClose={close} videoRef={videoRef} canvasRef={canvasRef}
           captured={captured} onCapture={capture} onRetake={() => { setCaptured(null); startStream(); }}
-          onUse={usePhoto} onPickFile={() => { close(); fileRef.current?.click(); }} uploading={uploading} />
+          onUse={usePhoto} onPickFile={() => { close(); fileRef.current?.click(); }} uploading={uploading}
+          cameras={cameras} cameraId={cameraId} onSelectCamera={select} />
       </div>
     );
   }
@@ -780,17 +777,19 @@ function FotoCaptura({ fotoUrl, nome, uploading, onFile, compact = false }: {
         onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
       <CameraDialog open={open} onClose={close} videoRef={videoRef} canvasRef={canvasRef}
         captured={captured} onCapture={capture} onRetake={() => { setCaptured(null); startStream(); }}
-        onUse={usePhoto} onPickFile={() => { close(); fileRef.current?.click(); }} uploading={uploading} />
+        onUse={usePhoto} onPickFile={() => { close(); fileRef.current?.click(); }} uploading={uploading}
+        cameras={cameras} cameraId={cameraId} onSelectCamera={select} />
     </>
   );
 }
 
-function CameraDialog({ open, onClose, videoRef, canvasRef, captured, onCapture, onRetake, onUse, onPickFile, uploading }: {
+function CameraDialog({ open, onClose, videoRef, canvasRef, captured, onCapture, onRetake, onUse, onPickFile, uploading, cameras, cameraId, onSelectCamera }: {
   open: boolean; onClose: () => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   captured: string | null; onCapture: () => void; onRetake: () => void;
   onUse: () => void; onPickFile: () => void; uploading: boolean;
+  cameras: MediaDeviceInfo[]; cameraId: string | null; onSelectCamera: (id: string) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -805,6 +804,20 @@ function CameraDialog({ open, onClose, videoRef, canvasRef, captured, onCapture,
             : <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
           }
         </div>
+        {/* Seletor de câmera: só quando há mais de uma (celular/tablet). */}
+        {!captured && cameras.length > 1 && (
+          <div className="mx-auto flex w-full max-w-[20rem] items-center gap-2">
+            <SwitchCamera className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Select value={cameraId ?? undefined} onValueChange={onSelectCamera}>
+              <SelectTrigger className="h-10 flex-1"><SelectValue placeholder="Selecionar câmera" /></SelectTrigger>
+              <SelectContent>
+                {cameras.map((c, i) => (
+                  <SelectItem key={c.deviceId} value={c.deviceId}>{c.label || `Câmera ${i + 1}`}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <canvas ref={canvasRef} className="hidden" />
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           {!captured ? (
